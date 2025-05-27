@@ -1,40 +1,68 @@
-using System;
+using UnityEngine;
 
-namespace RTS.Pathfinding 
+namespace RTS.Pathfinding
 {
     // Immutable runtime data for one grid cell
-    public struct Tile 
+    public class Tile
     {
-        public bool Walkable;      // Can be traversed by an agent
-        public float BaseCost;     // Base cost to traverse this tile
-        public ushort Version;     // Used for detecting changes and cache invalidation
-        public byte Flags;         // Bit flags for special tile properties (mud, poison, etc.)
-        
-        // Constructor with default values
-        public Tile(bool walkable = true, float baseCost = 1.0f, ushort version = 0, byte flags = 0) 
+        private Agent occupyingAgent;
+        private TileType type;
+
+        public Tile(Vector2Int pos, TileType tileType)
         {
-            Walkable = walkable;
-            BaseCost = baseCost;
-            Version = version;
-            Flags = flags;
+            Position = pos;
+            type = tileType;
+            UpdateWalkability();
+            UpdateBaseCost();
         }
-        
-        // Common flag masks for easy access
-        public const byte FLAG_MUD = 1;        // 00000001 - Slow movement
-        public const byte FLAG_POISON = 2;     // 00000010 - Health damage
-        public const byte FLAG_WATER = 4;      // 00000100 - Might restrict some units
-        public const byte FLAG_ELEVATION = 8;  // 00001000 - Height differences
-        
-        // Helper methods to check if a specific flag is set
-        public bool HasFlag(byte flag) => (Flags & flag) != 0;
-        
-        // Create a new tile with updated version (for change tracking)
-        public Tile WithIncrementedVersion() => new Tile(Walkable, BaseCost, (ushort)(Version + 1), Flags);
-        
-        // Create a new tile with modified walkable state
-        public Tile WithWalkable(bool walkable) => new Tile(walkable, BaseCost, (ushort)(Version + 1), Flags);
-        
-        // Create a new tile with modified flags
-        public Tile WithFlags(byte newFlags) => new Tile(Walkable, BaseCost, (ushort)(Version + 1), newFlags);
+
+        public Vector2Int Position { get; }
+
+        public TileType Type
+        {
+            get => type;
+            set
+            {
+                type = value;
+                UpdateWalkability();
+            }
+        }
+
+        public float BaseCost { get; private set; }
+
+        public bool IsWalkable { get; private set; }
+
+        private void UpdateWalkability()
+        {
+            IsWalkable = type != TileType.Blocked && type != TileType.Building;
+        }
+
+        private void UpdateBaseCost()
+        {
+            BaseCost = type switch
+            {
+                TileType.Road => 0.5f,
+                TileType.Ground => 1f,
+                TileType.Forest => 1.5f,
+                TileType.Water => 2f,
+                TileType.Mountain => 3f,
+                _ => 1f
+            };
+        }
+
+        public float GetCost(Agent agent, ICostProvider costProvider)
+        {
+            return costProvider.GetMovementCost(this, agent);
+        }
+
+        public bool IsOccupied()
+        {
+            return occupyingAgent != null;
+        }
+
+        public void SetOccupant(Agent agent)
+        {
+            occupyingAgent = agent;
+        }
     }
 }

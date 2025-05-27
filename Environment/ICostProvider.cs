@@ -1,142 +1,92 @@
+using System.Collections.Generic;
 using UnityEngine;
 
-namespace RTS.Pathfinding 
+namespace RTS.Pathfinding
 {
     // Strategy pattern: Interface for calculating tile traversal costs
-    public interface ICostProvider 
+    public interface ICostProvider
     {
-        // Calculate the cost for an agent to move onto a specific tile
-        float CalculateCost(Tile tile, AStarNavAgent agent);
-        
-        // Check if a tile is traversable by this agent
-        bool IsTraversable(Tile tile, AStarNavAgent agent);
+        float GetMovementCost(Tile tile, Agent agent);
+        float GetHeuristicCost(Vector2Int from, Vector2Int to);
+        bool ShouldAvoidTile(Tile tile, Agent agent);
     }
-    
-    // Default implementation that uses base tile costs
-    public class DefaultCostProvider : ICostProvider 
+
+    public class StandardCostProvider : ICostProvider
     {
-        public float CalculateCost(Tile tile, AStarNavAgent agent)
+        public float GetMovementCost(Tile tile, Agent agent)
         {
-            if (!tile.Walkable)
-                return float.MaxValue;
-                
+            if (!tile.IsWalkable) return float.MaxValue;
             return tile.BaseCost;
         }
-        
-        public bool IsTraversable(Tile tile, AStarNavAgent agent)
+
+        public float GetHeuristicCost(Vector2Int from, Vector2Int to)
         {
-            return tile.Walkable;
+            return Vector2Int.Distance(from, to);
+        }
+
+        public bool ShouldAvoidTile(Tile tile, Agent agent)
+        {
+            return !tile.IsWalkable;
         }
     }
-    
-    // Implementation that applies movement penalties in mud
-    public class MudAwareCostProvider : ICostProvider 
+
+    public class TerrainAwareCostProvider : ICostProvider
     {
-        private readonly float mudPenaltyMultiplier;
-        
-        public MudAwareCostProvider(float mudPenaltyMultiplier = 2.5f)
+        private readonly Dictionary<TileType, float> terrainCosts = new()
         {
-            this.mudPenaltyMultiplier = mudPenaltyMultiplier;
-        }
-        
-        public float CalculateCost(Tile tile, AStarNavAgent agent)
+            { TileType.Road, 0.5f },
+            { TileType.Ground, 1f },
+            { TileType.Forest, 2f },
+            { TileType.Water, 3f },
+            { TileType.Mountain, 4f }
+        };
+
+        public float GetMovementCost(Tile tile, Agent agent)
         {
-            if (!tile.Walkable)
+            if (!tile.IsWalkable) return float.MaxValue;
+
+            var capabilities = agent.GetMovementCapabilities();
+            if (!capabilities.AllowedTerrain.Contains(tile.Type))
                 return float.MaxValue;
-                
-            float cost = tile.BaseCost;
-            
-            // Apply mud penalty if the tile has the mud flag
-            if (tile.HasFlag(Tile.FLAG_MUD))
-            {
-                cost *= mudPenaltyMultiplier;
-            }
-            
-            return cost;
+
+            return terrainCosts.TryGetValue(tile.Type, out var cost) ? cost : tile.BaseCost;
         }
-        
-        public bool IsTraversable(Tile tile, AStarNavAgent agent)
+
+        public float GetHeuristicCost(Vector2Int from, Vector2Int to)
         {
-            return tile.Walkable;
+            return Vector2Int.Distance(from, to);
+        }
+
+        public bool ShouldAvoidTile(Tile tile, Agent agent)
+        {
+            var capabilities = agent.GetMovementCapabilities();
+            return !tile.IsWalkable || !capabilities.AllowedTerrain.Contains(tile.Type);
         }
     }
-    
-    // Implementation that causes agents to avoid poisonous tiles
-    public class PoisonAvoidanceCostProvider : ICostProvider 
+
+    public class UnitAvoidanceCostProvider : ICostProvider
     {
-        private readonly float poisonPenaltyMultiplier;
-        
-        public PoisonAvoidanceCostProvider(float poisonPenaltyMultiplier = 5.0f)
+        private readonly float unitAvoidanceCost = 5f;
+
+        public float GetMovementCost(Tile tile, Agent agent)
         {
-            this.poisonPenaltyMultiplier = poisonPenaltyMultiplier;
-        }
-        
-        public float CalculateCost(Tile tile, AStarNavAgent agent)
-        {
-            if (!tile.Walkable)
-                return float.MaxValue;
-                
-            float cost = tile.BaseCost;
-            
-            // Apply poison penalty if the tile has the poison flag
-            if (tile.HasFlag(Tile.FLAG_POISON))
-            {
-                cost *= poisonPenaltyMultiplier;
-            }
-            
+            if (!tile.IsWalkable) return float.MaxValue;
+
+            var cost = tile.BaseCost;
+            if (tile.IsOccupied())
+                cost += unitAvoidanceCost;
+
             return cost;
         }
-        
-        public bool IsTraversable(Tile tile, AStarNavAgent agent)
+
+        public float GetHeuristicCost(Vector2Int from, Vector2Int to)
         {
-            return tile.Walkable;
+            return Vector2Int.Distance(from, to);
         }
-    }
-    
-    // Combined cost provider that takes into account multiple factors
-    public class CombinedCostProvider : ICostProvider 
-    {
-        private readonly ICostProvider[] providers;
-        
-        public CombinedCostProvider(params ICostProvider[] providers)
+
+        public bool ShouldAvoidTile(Tile tile, Agent agent)
         {
-            this.providers = providers;
-        }
-        
-        public float CalculateCost(Tile tile, AStarNavAgent agent)
-        {
-            if (!tile.Walkable)
-                return float.MaxValue;
-                
-            float cost = tile.BaseCost;
-            
-            // Apply all cost providers
-            foreach (var provider in providers)
-            {
-                float providerCost = provider.CalculateCost(tile, agent);
-                if (providerCost == float.MaxValue)
-                    return float.MaxValue;
-                    
-                // For other providers, multiply effects
-                cost *= (providerCost / tile.BaseCost);
-            }
-            
-            return cost;
-        }
-        
-        public bool IsTraversable(Tile tile, AStarNavAgent agent)
-        {
-            if (!tile.Walkable)
-                return false;
-                
-            // Check all providers
-            foreach (var provider in providers)
-            {
-                if (!provider.IsTraversable(tile, agent))
-                    return false;
-            }
-            
-            return true;
+            return !tile.IsWalkable;
         }
     }
 }
