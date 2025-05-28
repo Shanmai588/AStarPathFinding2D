@@ -59,6 +59,7 @@ namespace RTS.Pathfinding
 
         public bool ShouldAvoidTile(Tile tile, Agent agent)
         {
+
             var capabilities = agent.GetMovementCapabilities();
             return !tile.IsWalkable || !capabilities.AllowedTerrain.Contains(tile.Type);
         }

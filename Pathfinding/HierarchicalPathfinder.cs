@@ -8,9 +8,10 @@ namespace RTS.Pathfinding
         private readonly PathCache cache = new();
         private readonly AStarPathfinder localPathfinder = new();
         private readonly RoomGraphPathfinder roomPathfinder = new();
-
+        private  GridManager gridManager;
         public Path FindPath(PathRequest request)
         {
+            if (!gridManager) gridManager = GameObject.FindObjectOfType<GridManager>();;
             // Check cache first
             var cacheKey = new PathCacheKey
             {
@@ -27,7 +28,6 @@ namespace RTS.Pathfinding
             // If same room, use local pathfinder
             if (request.StartRoomId == request.EndRoomId)
             {
-                var gridManager = Singleton<GridManager>.Instance;
                 var room = gridManager.GetRoom(request.StartRoomId);
                 var path = localPathfinder.FindPath(request.StartPos, request.EndPos, room, request.CostProvider);
                 cache.CachePath(cacheKey, path);
@@ -51,7 +51,6 @@ namespace RTS.Pathfinding
                 if (door == null) return new Path { IsValid = false };
 
                 // Path to door in current room
-                var gridManager = GameObject.FindObjectOfType<GridManager>();
                 var currentRoom = gridManager.GetRoom(currentRoomId);
                 var pathToDoor =
                     localPathfinder.FindPath(currentPos, door.PositionInRoom, currentRoom, request.CostProvider);
