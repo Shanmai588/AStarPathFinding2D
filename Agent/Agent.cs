@@ -1,124 +1,65 @@
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    public class Agent : MonoBehaviour
+    public class Agent
     {
-        [SerializeField] private int agentId;
-        [SerializeField] private Vector2Int currentPosition;
-        [SerializeField] private int currentRoomId;
-        [SerializeField] private AgentType type = AgentType.INFANTRY;
-        [SerializeField] private MovementCapabilities capabilities;
-
-        private Path currentPath;
+        private readonly MovementCapabilities capabilities;
+        private readonly RoomBasedNavigationController navController;
         private ICostProvider costProvider;
-        private RoomBasedNavigationController navigationController;
+        private Path currentPath;
+
+        public Agent(int id, AgentType agentType, Vector2Int startPos, int startRoom,
+            RoomBasedNavigationController controller)
+        {
+            AgentId = id;
+            Type = agentType;
+            CurrentPosition = startPos;
+            CurrentRoomId = startRoom;
+            navController = controller;
+
+            // Set up capabilities based on type
+            capabilities = Type switch
+            {
+                AgentType.Infantry => new MovementCapabilities(),
+                AgentType.Vehicle => new MovementCapabilities(false, false, 2f),
+                AgentType.Flying => new MovementCapabilities(true, false, 1.5f),
+                AgentType.Naval => new MovementCapabilities(false, true, 3f),
+                _ => new MovementCapabilities()
+            };
+
+            costProvider = new StandardCostProvider();
+        }
+
+        public int AgentId { get; }
+
+        public Vector2Int CurrentPosition { get; private set; }
+
+        public int CurrentRoomId { get; private set; }
+
+        public AgentType Type { get; }
 
         public event Action<Path> OnPathReceived;
         public event Action OnPathFailed;
 
-        public int AgentId => agentId;
-        public Vector2Int CurrentPosition => currentPosition;
-        public int CurrentRoomId => currentRoomId;
-        public AgentType Type => type;
-
-        private void Awake()
-        {
-            if (capabilities == null)
-            {
-                capabilities = new MovementCapabilities();
-            }
-
-            if (costProvider == null)
-            {
-                costProvider = new StandardCostProvider();
-            }
-
-            agentId = GetInstanceID(); // Simple ID assignment
-        }
-
-        private void Start()
-        {
-            navigationController = FindObjectOfType<RoomBasedNavigationController>();
-            if (navigationController != null)
-            {
-                // Initialize position based on current transform
-                InitializePositionFromTransform();
-                navigationController.RegisterAgent(this);
-            }
-        }
-
-        private void InitializePositionFromTransform()
-        {
-            if (navigationController != null)
-            {
-                // Get current world position and convert to grid coordinates
-                Vector2 worldPos = transform.position;
-                int roomId;
-                Vector2Int gridPos = navigationController.WorldToGrid(worldPos, out roomId);
-
-                // Update agent's position
-                currentPosition = gridPos;
-                currentRoomId = roomId;
-
-                // Verify the position is valid, if not find closest valid position
-                if (!navigationController.IsPositionWalkable(roomId, gridPos))
-                {
-                    var closestValid = navigationController.FindClosestReachablePoint(
-                        gridPos, gridPos, roomId, capabilities);
-                    currentPosition = closestValid;
-
-                    // Update transform to match the corrected position
-                    var correctedWorldPos = navigationController.GridToWorld(roomId, closestValid);
-                    transform.position = new Vector3(correctedWorldPos.x, correctedWorldPos.y, transform.position.z);
-                }
-
-                // Occupy the tile
-                var tile = navigationController.GetTile(roomId, currentPosition.x, currentPosition.y);
-                if (tile != null && tile.isWalkable)
-                {
-                    tile.SetOccupant(this);
-                }
-            }
-        }
-
-        private void OnDestroy()
-        {
-            if (navigationController != null)
-            {
-                navigationController.UnregisterAgent(this);
-            }
-        }
-
         public void RequestPath(Vector2Int target, int targetRoom)
         {
-            if (navigationController == null) return;
+            var request = new PathRequest(
+                AgentId, CurrentPosition, target, CurrentRoomId, targetRoom,
+                costProvider, OnPathFound
+            );
 
-            var request = new PathRequest
-            {
-                agentId = agentId,
-                startPos = currentPosition,
-                endPos = target,
-                startRoomId = currentRoomId,
-                endRoomId = targetRoom,
-                costProvider = costProvider,
-                priority = RequestPriority.NORMAL,
-                onComplete = OnPathRequestComplete
-            };
-
-            navigationController.RequestPath(request);
+            navController.GetPath(request);
         }
 
         public void RequestPathToClosestReachable(Vector2Int target, int targetRoom)
         {
-            if (navigationController == null) return;
+            var reachableTarget = navController.FindClosestReachablePoint(
+                CurrentPosition, target, targetRoom, capabilities
+            );
 
-            var closestPoint = navigationController.FindClosestReachablePoint(
-                currentPosition, target, targetRoom, capabilities);
-
-            RequestPath(closestPoint, targetRoom);
+            RequestPath(reachableTarget, targetRoom);
         }
 
         public Path GetCurrentPath()
@@ -133,57 +74,27 @@ namespace RTS.Pathfinding
 
         public void SetCostProvider(ICostProvider provider)
         {
-            costProvider = provider;
+            costProvider = provider ?? new StandardCostProvider();
         }
 
-        public void UpdatePosition(Vector2Int newPosition, int newRoomId)
+        public void UpdatePosition(Vector2Int newPos, int roomId)
         {
-            // Clear occupancy from old position
-            if (navigationController != null)
-            {
-                var oldTile = navigationController.GetTile(currentRoomId, currentPosition.x, currentPosition.y);
-                if (oldTile != null && oldTile.occupyingAgent == this)
-                {
-                    oldTile.SetOccupant(null);
-                }
-            }
-
-            currentPosition = newPosition;
-            currentRoomId = newRoomId;
-
-            // Set occupancy on new position
-            if (navigationController != null)
-            {
-                var newTile = navigationController.GetTile(newRoomId, newPosition.x, newPosition.y);
-                if (newTile != null && newTile.isWalkable)
-                {
-                    newTile.SetOccupant(this);
-                }
-            }
+            CurrentPosition = newPos;
+            CurrentRoomId = roomId;
         }
 
-        private void OnPathRequestComplete(Path path)
+        private void OnPathFound(Path path)
         {
             currentPath = path;
-            if (path != null && path.isValid)
-            {
+            if (path != null && path.IsValid)
                 OnPathReceived?.Invoke(path);
-            }
             else
-            {
                 OnPathFailed?.Invoke();
-            }
         }
 
         private Vector2Int FindClosestReachablePoint(Vector2Int target, int targetRoom)
         {
-            if (navigationController != null)
-            {
-                return navigationController.FindClosestReachablePoint(
-                    currentPosition, target, targetRoom, capabilities);
-            }
-
-            return target;
+            return navController.FindClosestReachablePoint(CurrentPosition, target, targetRoom, capabilities);
         }
     }
 }

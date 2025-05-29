@@ -4,16 +4,43 @@ namespace RTS.Pathfinding
 {
     public class MovementCapabilities
     {
-        public bool canFly;
-        public bool canSwim;
-        public float size = 1.0f;
-        public List<TileType> allowedTerrain = new List<TileType> { TileType.Floor };
-        public float maxSlope = 45f;
+        private readonly List<TileType> allowedTerrain;
+
+        public MovementCapabilities(bool fly = false, bool swim = false, float unitSize = 1f)
+        {
+            CanFly = fly;
+            CanSwim = swim;
+            Size = unitSize;
+            MaxSlope = 45f;
+            allowedTerrain = new List<TileType> { TileType.Ground, TileType.Road };
+
+            if (CanSwim)
+                allowedTerrain.Add(TileType.Water);
+            if (CanFly)
+            {
+                allowedTerrain.Add(TileType.Water);
+                allowedTerrain.Add(TileType.Mountain);
+                allowedTerrain.Add(TileType.Forest);
+            }
+        }
+
+        public bool CanFly { get; }
+
+        public bool CanSwim { get; }
+
+        public float Size { get; }
+
+        public float MaxSlope { get; }
 
         public bool CanTraverse(Tile tile)
         {
-            if (!tile.isWalkable) return false;
-            return allowedTerrain.Contains(tile.type);
+            if (tile == null || !tile.IsWalkable)
+                return false;
+
+            if (CanFly)
+                return true;
+
+            return allowedTerrain.Contains(tile.Type);
         }
     }
 }

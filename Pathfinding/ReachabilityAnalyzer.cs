@@ -5,54 +5,56 @@ namespace RTS.Pathfinding
 {
     public class ReachabilityAnalyzer
     {
-        private GridManager gridManager;
-        public int maxSearchRadius = 10;
+        private readonly GridManager gridManager;
+        private readonly int maxSearchRadius;
 
-        public ReachabilityAnalyzer(GridManager gm)
+        public ReachabilityAnalyzer(GridManager manager, int maxRadius = 50)
         {
-            gridManager = gm;
+            gridManager = manager;
+            maxSearchRadius = maxRadius;
         }
 
-        public Vector2Int FindClosestReachablePoint(Vector2Int start, Vector2Int target, int roomId,
-            MovementCapabilities capabilities)
+        public Vector2Int FindClosestReachablePoint(Vector2Int start, Vector2Int target,
+            int roomId, MovementCapabilities capabilities)
         {
             var room = gridManager.GetRoom(roomId);
-            if (room == null) return target;
-
-            // Check if target is already reachable
-            var targetTile = room.GetTile(target.x, target.y);
-            if (targetTile != null && capabilities.CanTraverse(targetTile))
+            if (room == null)
                 return target;
 
-            // Expand search in increasing radius
-            for (int radius = 1; radius <= maxSearchRadius; radius++)
+            // If target is already reachable, return it
+            if (IsPointReachable(start, target, roomId, capabilities))
+                return target;
+
+            // Search in expanding circles
+            for (var radius = 1; radius <= maxSearchRadius; radius++)
             {
                 var candidates = ExpandSearch(target, radius, roomId, capabilities);
-                if (candidates.Count > 0)
-                {
-                    // Return closest candidate
-                    Vector2Int closest = candidates[0];
-                    float minDist = Vector2Int.Distance(start, closest);
 
-                    foreach (var candidate in candidates)
+                // Find closest reachable candidate
+                var closest = target;
+                var minDistance = float.MaxValue;
+
+                foreach (var candidate in candidates)
+                    if (IsPointReachable(start, candidate, roomId, capabilities))
                     {
-                        float dist = Vector2Int.Distance(start, candidate);
-                        if (dist < minDist)
+                        var dist = Vector2Int.Distance(start, candidate);
+                        if (dist < minDistance)
                         {
-                            minDist = dist;
+                            minDistance = dist;
                             closest = candidate;
                         }
                     }
 
+                if (minDistance < float.MaxValue)
                     return closest;
-                }
             }
 
-            return target; // Fallback
+            return target; // No reachable point found
         }
 
         public bool IsPointReachable(Vector2Int from, Vector2Int to, int roomId, MovementCapabilities capabilities)
         {
+            // Simple check - would use pathfinding in full implementation
             var room = gridManager.GetRoom(roomId);
             if (room == null) return false;
 
@@ -63,30 +65,44 @@ namespace RTS.Pathfinding
         private List<Vector2Int> ExpandSearch(Vector2Int center, int radius, int roomId,
             MovementCapabilities capabilities)
         {
-            var results = new List<Vector2Int>();
             var room = gridManager.GetRoom(roomId);
-            if (room == null) return results;
+            if (room == null)
+                return new List<Vector2Int>();
 
-            for (int x = center.x - radius; x <= center.x + radius; x++)
+            var points = new List<Vector2Int>();
+
+            // Get points on the perimeter of the square
+            for (var x = center.x - radius; x <= center.x + radius; x++)
             {
-                for (int y = center.y - radius; y <= center.y + radius; y++)
-                {
-                    if (Vector2Int.Distance(center, new Vector2Int(x, y)) <= radius)
-                    {
-                        if (ValidateReachability(new Vector2Int(x, y), roomId, capabilities))
-                            results.Add(new Vector2Int(x, y));
-                    }
-                }
+                // Top and bottom edges
+                CheckAndAddPoint(x, center.y - radius, room, capabilities, points);
+                CheckAndAddPoint(x, center.y + radius, room, capabilities, points);
             }
 
-            return results;
+            for (var y = center.y - radius + 1; y < center.y + radius; y++)
+            {
+                // Left and right edges
+                CheckAndAddPoint(center.x - radius, y, room, capabilities, points);
+                CheckAndAddPoint(center.x + radius, y, room, capabilities, points);
+            }
+
+            return points;
+        }
+
+        private void CheckAndAddPoint(int x, int y, Room room, MovementCapabilities capabilities,
+            List<Vector2Int> points)
+        {
+            if (room.IsValidPosition(x, y))
+            {
+                var tile = room.GetTile(x, y);
+                if (tile != null && capabilities.CanTraverse(tile)) points.Add(new Vector2Int(x, y));
+            }
         }
 
         private bool ValidateReachability(Vector2Int point, int roomId, MovementCapabilities capabilities)
         {
             var room = gridManager.GetRoom(roomId);
-            if (room == null || !room.IsValidPosition(point.x, point.y))
-                return false;
+            if (room == null) return false;
 
             var tile = room.GetTile(point.x, point.y);
             return tile != null && capabilities.CanTraverse(tile);

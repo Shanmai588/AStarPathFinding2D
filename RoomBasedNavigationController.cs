@@ -1,48 +1,42 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
     public class RoomBasedNavigationController : MonoBehaviour
     {
-        [Header("System Configuration")] [SerializeField]
-        private int maxRequestsPerFrame = 5;
-
-        [SerializeField] private float reservationTimeStep = 0.1f;
-        [SerializeField] private bool enableDebugVisualization = false;
-
-        // Core Systems
-        private GridManager gridManager;
-        private PathRequestManager pathRequestManager;
-        private ReservationTable reservationTable;
+        [SerializeField] private int maxRequestsPerFrame = 5;
+        [SerializeField] private float reservationTimeStep = 0.5f;
+        [SerializeField] private bool enableDebugVisualization = true;
         private EventBus eventBus;
-        private ReachabilityAnalyzer reachabilityAnalyzer;
+        private GridManager gridManager;
+        private PathCache pathCache;
         private HierarchicalPathfinder pathfinder;
-
-        // Agent Management
-        private List<Agent> registeredAgents = new List<Agent>();
-        private List<Path> activePaths = new List<Path>();
-
-        public GridManager GridManager { get => gridManager; }
-        public static RoomBasedNavigationController Instance { get; private set; }
+        private PathRequestManager pathRequestManager;
+        private ReachabilityAnalyzer reachabilityAnalyzer;
+        private List<Agent> registeredAgents;
+        private ReservationTable reservationTable;
 
         private void Awake()
         {
-            if (Instance == null)
-            {
-                Instance = this;
-                InitializeSystems();
-            }
-            else
-            {
-                Destroy(gameObject);
-            }
+            eventBus = new EventBus();
+            gridManager = new GridManager(eventBus);
+            pathCache = new PathCache();
+            pathfinder = new HierarchicalPathfinder(pathCache);
+            pathRequestManager = new PathRequestManager(pathfinder, maxRequestsPerFrame);
+            reservationTable = new ReservationTable(reservationTimeStep);
+            reachabilityAnalyzer = new ReachabilityAnalyzer(gridManager);
+            registeredAgents = new List<Agent>();
+
+            // Register path cache for tile change events
+            gridManager.RegisterForTileChanges(pathCache);
         }
 
         private void Start()
         {
-            // Initialize with some default rooms for testing
-            CreateDefaultRooms();
+            // Initialize pathfinder with rooms
+            pathfinder.Initialize(gridManager.GetAllRooms());
         }
 
         private void Update()
@@ -52,87 +46,16 @@ namespace RTS.Pathfinding
             HandleEvents();
         }
 
-        private void InitializeSystems()
-        {
-            eventBus = new EventBus();
-            gridManager = new GridManager(eventBus);
-            reservationTable = new ReservationTable { timeStep = reservationTimeStep };
-            reachabilityAnalyzer = new ReachabilityAnalyzer(gridManager);
-            pathfinder = new HierarchicalPathfinder();
-            pathRequestManager = new PathRequestManager(pathfinder);
-
-            // Build room graph when pathfinder is ready
-            pathfinder.SetGridManager(gridManager);
-        }
-
-        private void CreateDefaultRooms()
-        {
-            // Create a simple test room
-            var room1 = new Room(0, 20, 20, Vector2.zero);
-            var room2 = new Room(1, 15, 15, new Vector2(25, 0));
-
-            // Add some walls for testing
-            for (int x = 5; x < 15; x++)
-            {
-                var tile = room1.GetTile(x, 10);
-                if (tile != null)
-                {
-                    tile.type = TileType.Wall;
-                    tile.isWalkable = false;
-                }
-            }
-
-            // Add a door between rooms
-            var door = new Door
-            {
-                positionInRoom = new Vector2Int(19, 10),
-                connectedRoomId = 1,
-                connectedPosition = new Vector2Int(0, 10),
-                isOpen = true
-            };
-            room1.doors.Add(door);
-
-            gridManager.AddRoom(room1);
-            gridManager.AddRoom(room2);
-        }
-
-        public void RequestPath(PathRequest request)
-        {
-            pathRequestManager.QueueRequest(request);
-
-            // Wrap the original callback to track active paths
-            var originalCallback = request.onComplete;
-            request.onComplete = (path) =>
-            {
-                if (path != null && path.isValid)
-                {
-                    activePaths.Add(path);
-
-                    // Remove path after some time or when agent reaches destination
-                    StartCoroutine(RemovePathAfterDelay(path, 30f)); // Remove after 30 seconds
-                }
-
-                originalCallback?.Invoke(path);
-            };
-        }
-
-        private System.Collections.IEnumerator RemovePathAfterDelay(Path path, float delay)
-        {
-            yield return new WaitForSeconds(delay);
-            activePaths.Remove(path);
-        }
-
         public Path GetPath(PathRequest request)
         {
-            return pathfinder.FindPath(request);
+            pathRequestManager.QueueRequest(request);
+            return null; // Async processing
         }
 
         public void RegisterAgent(Agent agent)
         {
             if (!registeredAgents.Contains(agent))
-            {
                 registeredAgents.Add(agent);
-            }
         }
 
         public void UnregisterAgent(Agent agent)
@@ -159,37 +82,37 @@ namespace RTS.Pathfinding
         public Tile[,] GetTilesByRoom(int roomId)
         {
             var room = GetRoom(roomId);
-            return room?.grid;
+            if (room == null) return null;
+
+            var tiles = new Tile[room.Width, room.Height];
+            for (var x = 0; x < room.Width; x++)
+            for (var y = 0; y < room.Height; y++)
+                tiles[x, y] = room.GetTile(x, y);
+
+            return tiles;
         }
 
         public Bounds GetRoomBounds(int roomId)
         {
             var room = GetRoom(roomId);
-            if (room != null)
-            {
-                return new Bounds(
-                    room.worldPosition + new Vector2(room.width / 2f, room.height / 2f),
-                    new Vector3(room.width, room.height, 1));
-            }
+            if (room == null) return new Bounds();
 
-            return new Bounds();
+            var center = room.WorldPosition + new Vector2(room.Width / 2f, room.Height / 2f);
+            return new Bounds(new Vector3(center.x, center.y, 0), new Vector3(room.Width, room.Height, 1));
         }
 
         public List<Door> GetAllDoors()
         {
-            var doors = new List<Door>();
-            foreach (var room in gridManager.GetAllRooms().Values)
-            {
-                doors.AddRange(room.doors);
-            }
+            var allDoors = new List<Door>();
+            foreach (var room in gridManager.GetAllRooms().Values) allDoors.AddRange(room.GetDoors());
 
-            return doors;
+            return allDoors;
         }
 
         public List<Door> GetDoorsInRoom(int roomId)
         {
             var room = GetRoom(roomId);
-            return room?.doors ?? new List<Door>();
+            return room?.GetDoors() ?? new List<Door>();
         }
 
         public List<Reservation> GetActiveReservations()
@@ -199,78 +122,68 @@ namespace RTS.Pathfinding
 
         public List<Reservation> GetActiveReservationsInRoom(int roomId)
         {
-            return reservationTable.GetActiveReservationsInRoom(roomId);
+            return GetActiveReservations().Where(r =>
+            {
+                // Check if position is in specified room
+                var room = GetRoom(roomId);
+                return room != null && room.IsValidPosition(r.Position.x, r.Position.y);
+            }).ToList();
         }
 
         public List<Path> GetActivePaths()
         {
-            return activePaths;
+            var paths = new List<Path>();
+            foreach (var agent in registeredAgents)
+            {
+                var path = agent.GetCurrentPath();
+                if (path != null && path.IsValid)
+                    paths.Add(path);
+            }
+
+            return paths;
         }
 
         public List<Agent> GetRegisteredAgents()
         {
-            return registeredAgents;
+            return new List<Agent>(registeredAgents);
         }
 
         public bool IsPositionWalkable(int roomId, Vector2Int position)
         {
             var tile = GetTile(roomId, position.x, position.y);
-            return tile != null && tile.isWalkable;
+            return tile != null && tile.IsWalkable && !tile.IsOccupied();
         }
 
         public Vector2Int WorldToGrid(Vector2 worldPos, out int roomId)
         {
-            roomId = 0;
-
-            foreach (var room in gridManager.GetAllRooms().Values)
+            // Find which room contains this world position
+            foreach (var kvp in gridManager.GetAllRooms())
             {
-                var localPos = worldPos - room.worldPosition;
-                if (localPos.x >= 0 && localPos.x < room.width &&
-                    localPos.y >= 0 && localPos.y < room.height)
+                var room = kvp.Value;
+                var localPos = worldPos - room.WorldPosition;
+
+                if (localPos.x >= 0 && localPos.x < room.Width &&
+                    localPos.y >= 0 && localPos.y < room.Height)
                 {
-                    roomId = room.roomId;
-                    return new Vector2Int(Mathf.FloorToInt(localPos.x), Mathf.FloorToInt(localPos.y));
+                    roomId = room.RoomId;
+                    return room.WorldToGrid(worldPos);
                 }
             }
 
+            roomId = -1;
             return Vector2Int.zero;
         }
 
         public Vector2 GridToWorld(int roomId, Vector2Int gridPos)
         {
             var room = GetRoom(roomId);
-            if (room != null)
-            {
-                return room.GridToWorld(gridPos);
-            }
-
-            return Vector2.zero;
+            return room?.GridToWorld(gridPos) ?? Vector2.zero;
         }
 
-        public Vector2Int FindClosestReachablePoint(Vector2Int start, Vector2Int target, int roomId,
-            MovementCapabilities capabilities)
+        public Vector2Int FindClosestReachablePoint(Vector2Int start, Vector2Int target,
+            int roomId, MovementCapabilities capabilities)
         {
             return reachabilityAnalyzer.FindClosestReachablePoint(start, target, roomId, capabilities);
-        }
-
-        public HierarchicalPathfinder GetPathfinder()
-        {
-            return pathfinder;
-        }
-
-        public GridManager GetGridManager()
-        {
-            return gridManager;
-        }
-
-        public EventBus GetEventBus()
-        {
-            return eventBus;
-        }
-
-        public ReservationTable GetReservationTable()
-        {
-            return reservationTable;
         }
 
         private void CoordinatePathfinding()
@@ -285,48 +198,25 @@ namespace RTS.Pathfinding
 
         private void HandleEvents()
         {
-            // Process any pending events
+            // Event processing if needed
         }
 
-        // Editor/Debug Methods
+        // Public methods for adding/removing rooms
+        public void AddRoom(Room room)
+        {
+            gridManager.AddRoom(room);
+            pathfinder.Initialize(gridManager.GetAllRooms());
+        }
+
+        public void RemoveRoom(int roomId)
+        {
+            gridManager.RemoveRoom(roomId);
+            pathfinder.Initialize(gridManager.GetAllRooms());
+        }
+
         public void UpdateTile(int roomId, int x, int y, TileType newType)
         {
             gridManager.UpdateTile(roomId, x, y, newType);
-        }
-
-        private void OnDrawGizmos()
-        {
-            if (!enableDebugVisualization) return;
-
-            if (gridManager != null)
-            {
-                DrawRoomBounds();
-                DrawDoors();
-            }
-        }
-
-        private void DrawRoomBounds()
-        {
-            Gizmos.color = Color.blue;
-            foreach (var room in gridManager.GetAllRooms().Values)
-            {
-                var bounds = GetRoomBounds(room.roomId);
-                Gizmos.DrawWireCube(bounds.center, bounds.size);
-            }
-        }
-
-        private void DrawDoors()
-        {
-            Gizmos.color = Color.green;
-            foreach (var door in GetAllDoors())
-            {
-                var room = GetRoom(0); // This needs proper room lookup
-                if (room != null)
-                {
-                    var worldPos = room.GridToWorld(door.positionInRoom);
-                    Gizmos.DrawWireSphere(worldPos, 0.5f);
-                }
-            }
         }
     }
 }

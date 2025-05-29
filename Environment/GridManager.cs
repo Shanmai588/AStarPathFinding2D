@@ -3,22 +3,21 @@ using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    
     // Grid Management
-    public class GridManager : ITileChangeListener
+    public class GridManager
     {
-        private Dictionary<int, Room> rooms = new Dictionary<int, Room>();
-        private EventBus eventBus;
+        private readonly EventBus eventBus;
+        private readonly Dictionary<int, Room> rooms;
 
         public GridManager(EventBus bus)
         {
+            rooms = new Dictionary<int, Room>();
             eventBus = bus;
-            eventBus.Subscribe<TileChangedEvent>(this);
         }
 
         public Room GetRoom(int roomId)
         {
-            return rooms.ContainsKey(roomId) ? rooms[roomId] : null;
+            return rooms.TryGetValue(roomId, out var room) ? room : null;
         }
 
         public Tile GetTile(int roomId, int x, int y)
@@ -29,25 +28,30 @@ namespace RTS.Pathfinding
 
         public void UpdateTile(int roomId, int x, int y, TileType newType)
         {
-            var tile = GetTile(roomId, x, y);
-            if (tile != null)
-            {
-                var oldType = tile.type;
-                tile.type = newType;
-            
-                eventBus.Publish(new TileChangedEvent
-                {
-                    roomId = roomId,
-                    position = new Vector2Int(x, y),
-                    oldType = oldType,
-                    newType = newType
-                });
-            }
+            var room = GetRoom(roomId);
+            if (room == null) return;
+
+            var tile = room.GetTile(x, y);
+            if (tile == null) return;
+
+            var oldType = tile.Type;
+            var newTile = new Tile(new Vector2Int(x, y), newType);
+            room.SetTile(x, y, newTile);
+
+            // Publish tile change event
+            var changeEvent = new TileChangedEvent(roomId, new Vector2Int(x, y), oldType, newType);
+            eventBus.Publish(changeEvent);
+        }
+
+        public void RegisterForTileChanges(ITileChangeListener listener)
+        {
+            eventBus.Subscribe(new TileChangeListenerAdapter(listener));
         }
 
         public void AddRoom(Room room)
         {
-            rooms[room.roomId] = room;
+            if (room != null)
+                rooms[room.RoomId] = room;
         }
 
         public void RemoveRoom(int roomId)
@@ -57,18 +61,7 @@ namespace RTS.Pathfinding
 
         public Dictionary<int, Room> GetAllRooms()
         {
-            return rooms;
-        }
-
-        public void OnEvent(TileChangedEvent eventData)
-        {
-            OnTileChanged(eventData);
-        }
-
-        public void OnTileChanged(TileChangedEvent eventData)
-        {
-            // Handle tile change - could invalidate pathfinding cache, etc.
+            return new Dictionary<int, Room>(rooms);
         }
     }
-
 }

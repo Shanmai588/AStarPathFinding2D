@@ -5,28 +5,38 @@ namespace RTS.Pathfinding
 {
     public class PathRequest
     {
-        public int agentId;
-        public Vector2Int startPos, endPos;
-        public int startRoomId, endRoomId;
-        public ICostProvider costProvider;
-        public Action<Path> onComplete;
-        public RequestPriority priority;
-
-        public Path Execute()
+        public PathRequest(int agentId, Vector2Int start, Vector2Int end,
+            int startRoom, int endRoom, ICostProvider provider,
+            Action<Path> onComplete, RequestPriority priority = RequestPriority.Normal)
         {
-            // This will be implemented by the pathfinding system
-            return new Path();
+            AgentId = agentId;
+            StartPos = start;
+            EndPos = end;
+            StartRoomId = startRoom;
+            EndRoomId = endRoom;
+            CostProvider = provider;
+            OnComplete = onComplete;
+            Priority = priority;
+        }
+
+        public int AgentId { get; private set; }
+        public Vector2Int StartPos { get; private set; }
+        public Vector2Int EndPos { get; private set; }
+        public int StartRoomId { get; private set; }
+        public int EndRoomId { get; private set; }
+        public ICostProvider CostProvider { get; private set; }
+        public Action<Path> OnComplete { get; private set; }
+        public RequestPriority Priority { get; private set; }
+
+        public Path Execute(HierarchicalPathfinder pathfinder)
+        {
+            return pathfinder.FindPath(this);
         }
 
         public void Reset()
         {
-            agentId = 0;
-            startPos = endPos = Vector2Int.zero;
-            startRoomId = endRoomId = 0;
-            costProvider = null;
-            onComplete = null;
-            priority = RequestPriority.NORMAL;
+            OnComplete = null;
+            CostProvider = null;
         }
     }
-
 }

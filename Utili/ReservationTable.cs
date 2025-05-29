@@ -1,37 +1,34 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
     public class ReservationTable
     {
-        private Dictionary<Vector2Int, List<Reservation>>
-            reservations = new Dictionary<Vector2Int, List<Reservation>>();
+        private readonly Dictionary<Vector2Int, List<Reservation>> reservations;
+        private readonly float timeStep;
+        private float currentTime;
 
-        private Dictionary<int, List<Reservation>> agentReservations = new Dictionary<int, List<Reservation>>();
-        public float timeStep = 0.1f;
+        public ReservationTable(float step = 0.5f)
+        {
+            reservations = new Dictionary<Vector2Int, List<Reservation>>();
+            timeStep = step;
+            currentTime = 0;
+        }
 
         public bool ReservePosition(int agentId, Vector2Int position, float timeSlot)
         {
-            if (IsPositionReserved(position, timeSlot, agentId))
-                return false; // Position already reserved by another agent
-
             if (!reservations.ContainsKey(position))
                 reservations[position] = new List<Reservation>();
 
-            if (!agentReservations.ContainsKey(agentId))
-                agentReservations[agentId] = new List<Reservation>();
+            // Check for conflicts
+            foreach (var reservation in reservations[position])
+                if (reservation.AgentId != agentId &&
+                    reservation.StartTime <= timeSlot && reservation.EndTime >= timeSlot)
+                    return false;
 
-            var reservation = new Reservation
-            {
-                agentId = agentId,
-                position = position,
-                startTime = timeSlot,
-                endTime = timeSlot + timeStep
-            };
-
-            reservations[position].Add(reservation);
-            agentReservations[agentId].Add(reservation);
+            reservations[position].Add(new Reservation(agentId, position, timeSlot, timeSlot + timeStep));
             return true;
         }
 
@@ -40,85 +37,28 @@ namespace RTS.Pathfinding
             if (!reservations.ContainsKey(position))
                 return false;
 
-            foreach (var reservation in reservations[position])
-            {
-                if (reservation.agentId != excludeAgent && reservation.IsActive(timeSlot))
-                    return true;
-            }
-
-            return false;
+            return reservations[position].Any(r =>
+                r.AgentId != excludeAgent && r.IsActive(timeSlot));
         }
 
         public void ClearReservations(int agentId)
         {
-            if (agentReservations.ContainsKey(agentId))
-            {
-                // Remove from position-based lookup
-                foreach (var reservation in agentReservations[agentId])
-                {
-                    if (reservations.ContainsKey(reservation.position))
-                    {
-                        reservations[reservation.position].Remove(reservation);
-                        if (reservations[reservation.position].Count == 0)
-                            reservations.Remove(reservation.position);
-                    }
-                }
-
-                // Clear agent's reservations
-                agentReservations[agentId].Clear();
-            }
+            foreach (var posList in reservations.Values) posList.RemoveAll(r => r.AgentId == agentId);
         }
 
         public void UpdateReservations(float deltaTime)
         {
-            var currentTime = Time.time;
-            var expiredPositions = new List<Vector2Int>();
+            currentTime += deltaTime;
 
-            foreach (var kvp in reservations)
-            {
-                kvp.Value.RemoveAll(r => r.IsExpired(currentTime));
-                if (kvp.Value.Count == 0)
-                    expiredPositions.Add(kvp.Key);
-            }
-
-            foreach (var pos in expiredPositions)
-                reservations.Remove(pos);
-
-            // Clean up agent reservations
-            foreach (var kvp in agentReservations)
-            {
-                kvp.Value.RemoveAll(r => r.IsExpired(currentTime));
-            }
+            // Remove expired reservations
+            foreach (var posList in reservations.Values) posList.RemoveAll(r => r.IsExpired(currentTime));
         }
 
         public List<Reservation> GetActiveReservations()
         {
-            var activeReservations = new List<Reservation>();
-            var currentTime = Time.time;
-
-            foreach (var reservationList in reservations.Values)
-            {
-                foreach (var reservation in reservationList)
-                {
-                    if (reservation.IsActive(currentTime))
-                        activeReservations.Add(reservation);
-                }
-            }
-
-            return activeReservations;
-        }
-
-        public List<Reservation> GetActiveReservationsInRoom(int roomId)
-        {
-            // This is a simplified implementation - in a real system, you'd filter by room bounds
-            return GetActiveReservations();
-        }
-
-        public List<Reservation> GetAgentReservations(int agentId)
-        {
-            return agentReservations.ContainsKey(agentId)
-                ? new List<Reservation>(agentReservations[agentId])
-                : new List<Reservation>();
+            var active = new List<Reservation>();
+            foreach (var posList in reservations.Values) active.AddRange(posList.Where(r => r.IsActive(currentTime)));
+            return active;
         }
     }
 }

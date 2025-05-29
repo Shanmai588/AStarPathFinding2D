@@ -5,113 +5,114 @@ namespace RTS.Pathfinding
 {
     public class AStarPathfinder
     {
-        private ObjectPool<PathNode> nodePool = new ObjectPool<PathNode>();
-        private List<PathNode> openSet = new List<PathNode>();
-        private HashSet<Vector2Int> closedSet = new HashSet<Vector2Int>();
+        private readonly Dictionary<Vector2Int, PathNode> nodeMap;
+        private readonly ObjectPool<PathNode> nodePool;
+
+        public AStarPathfinder()
+        {
+            nodePool = new ObjectPool<PathNode>(
+                () => new PathNode(Vector2Int.zero),
+                node => node.Reset()
+            );
+            nodeMap = new Dictionary<Vector2Int, PathNode>();
+        }
 
         public Path FindPath(Vector2Int start, Vector2Int goal, Room room, ICostProvider costProvider)
         {
-            openSet.Clear();
-            closedSet.Clear();
+            nodeMap.Clear();
+            var openSet = new SortedSet<PathNode>(Comparer<PathNode>.Create((a, b) =>
+            {
+                var result = a.FCost.CompareTo(b.FCost);
+                if (result == 0)
+                    result = a.Position.x.CompareTo(b.Position.x);
+                if (result == 0)
+                    result = a.Position.y.CompareTo(b.Position.y);
+                return result;
+            }));
+            var closedSet = new HashSet<Vector2Int>();
 
-            var startNode = nodePool.Get();
-            startNode.position = start;
-            startNode.gCost = 0;
-            startNode.hCost = costProvider.GetHeuristicCost(start, goal);
-
+            var startNode = GetOrCreateNode(start);
+            startNode.GCost = 0;
+            startNode.HCost = costProvider.GetHeuristicCost(start, goal);
             openSet.Add(startNode);
 
             while (openSet.Count > 0)
             {
-                var current = GetLowestFCostNode();
+                var current = openSet.Min;
                 openSet.Remove(current);
-                closedSet.Add(current.position);
 
-                if (current.position == goal)
-                {
-                    var path = ReconstructPath(current);
-                    ReturnNodesToPool();
-                    return path;
-                }
+                if (current.Position == goal)
+                    return ReconstructPath(current);
 
-                var neighbors = GetNeighbors(current, room);
-                foreach (var neighbor in neighbors)
+                closedSet.Add(current.Position);
+
+                foreach (var neighbor in GetNeighbors(current, room))
                 {
-                    if (closedSet.Contains(neighbor.position))
+                    if (closedSet.Contains(neighbor.Position))
                         continue;
 
-                    var tile = room.GetTile(neighbor.position.x, neighbor.position.y);
-                    if (costProvider.ShouldAvoidTile(tile, null))
+                    var tile = room.GetTile(neighbor.Position.x, neighbor.Position.y);
+                    if (tile == null || costProvider.ShouldAvoidTile(tile, null))
                         continue;
 
-                    float tentativeGCost = current.gCost + costProvider.GetMovementCost(tile, null);
+                    var tentativeGCost = current.GCost + costProvider.GetMovementCost(tile, null);
 
-                    var existingNode = openSet.Find(n => n.position == neighbor.position);
-                    if (existingNode == null)
+                    var neighborNode = GetOrCreateNode(neighbor.Position);
+                    var isNewNode = !openSet.Contains(neighborNode);
+
+                    if (tentativeGCost < neighborNode.GCost || isNewNode)
                     {
-                        neighbor.gCost = tentativeGCost;
-                        neighbor.hCost = costProvider.GetHeuristicCost(neighbor.position, goal);
-                        neighbor.parent = current;
-                        openSet.Add(neighbor);
-                    }
-                    else if (tentativeGCost < existingNode.gCost)
-                    {
-                        existingNode.gCost = tentativeGCost;
-                        existingNode.parent = current;
+                        if (!isNewNode)
+                            openSet.Remove(neighborNode);
+
+                        neighborNode.GCost = tentativeGCost;
+                        neighborNode.HCost = costProvider.GetHeuristicCost(neighbor.Position, goal);
+                        neighborNode.Parent = current;
+
+                        openSet.Add(neighborNode);
                     }
                 }
             }
 
-            ReturnNodesToPool();
-            return new Path { isValid = false };
+            return new Path(null, float.MaxValue); // No path found
         }
 
-        private PathNode GetLowestFCostNode()
+        private PathNode GetOrCreateNode(Vector2Int position)
         {
-            PathNode lowest = openSet[0];
-            for (int i = 1; i < openSet.Count; i++)
+            if (!nodeMap.TryGetValue(position, out var node))
             {
-                if (openSet[i].FCost < lowest.FCost)
-                    lowest = openSet[i];
+                node = nodePool.Get();
+                node = new PathNode(position);
+                nodeMap[position] = node;
             }
 
-            return lowest;
+            return node;
         }
 
-        private Path ReconstructPath(PathNode node)
+        private Path ReconstructPath(PathNode endNode)
         {
-            var path = new Path();
-            var current = node;
+            var waypoints = new List<Vector2Int>();
+            var current = endNode;
+            var totalCost = current.GCost;
 
             while (current != null)
             {
-                path.waypoints.Insert(0, current.position);
-                current = current.parent;
+                waypoints.Add(current.Position);
+                current = current.Parent;
             }
 
-            return path;
+            waypoints.Reverse();
+            return new Path(waypoints, totalCost);
         }
 
         private List<PathNode> GetNeighbors(PathNode current, Room room)
         {
             var neighbors = new List<PathNode>();
-            var neighborPositions = room.GetNeighbors(current.position.x, current.position.y);
+            var positions = room.GetNeighbors(current.Position.x, current.Position.y);
 
-            foreach (var pos in neighborPositions)
-            {
-                var neighbor = nodePool.Get();
-                neighbor.position = pos;
-                neighbors.Add(neighbor);
-            }
+            foreach (var pos in positions) neighbors.Add(GetOrCreateNode(pos));
 
             return neighbors;
-        }
-
-        private void ReturnNodesToPool()
-        {
-            foreach (var node in openSet)
-                nodePool.Return(node);
-            // Note: In a real implementation, you'd also return closed set nodes
         }
     }
 }

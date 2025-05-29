@@ -10,14 +10,14 @@ namespace RTS.Pathfinding
 
     public class EventBus
     {
-        private Dictionary<Type, List<object>> listeners = new Dictionary<Type, List<object>>();
+        private readonly Dictionary<Type, List<object>> listeners = new();
 
         public void Subscribe<T>(IEventListener<T> listener)
         {
             var type = typeof(T);
             if (!listeners.ContainsKey(type))
                 listeners[type] = new List<object>();
-        
+
             listeners[type].Add(listener);
         }
 
@@ -32,14 +32,8 @@ namespace RTS.Pathfinding
         {
             var type = typeof(T);
             if (listeners.ContainsKey(type))
-            {
                 foreach (var listener in listeners[type])
-                {
-                    if (listener is IEventListener<T> typedListener)
-                        typedListener.OnEvent(eventData);
-                }
-            }
+                    ((IEventListener<T>)listener).OnEvent(eventData);
         }
     }
-
 }
