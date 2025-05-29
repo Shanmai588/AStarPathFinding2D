@@ -9,7 +9,7 @@ namespace RTS.Pathfinding
         [SerializeField] private bool showPaths = true;
         [SerializeField] private bool showReservations = true;
         [SerializeField] private Color roomBoundColor = Color.green;
-        [SerializeField] private Color doorColor = Color.blue;
+        [SerializeField] private Color doorColor = Color.yellow;
         [SerializeField] private Color pathColor = Color.yellow;
         [SerializeField] private Color reservationColor = Color.red;
         private RoomBasedNavigationController controller;

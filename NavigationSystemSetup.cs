@@ -49,11 +49,7 @@ namespace RTS.Pathfinding
             // Spawn an infantry unit
             SpawnUnit(AgentType.Infantry, new Vector2(5, 5), 1);
 
-            // Spawn a vehicle
-            SpawnUnit(AgentType.Vehicle, new Vector2(10, 10), 1);
-
-            // Spawn a flying unit
-            SpawnUnit(AgentType.Flying, new Vector2(15, 15), 1);
+           
         }
 
         private void SpawnUnit(AgentType type, Vector2 worldPos, int roomId)
@@ -61,15 +57,28 @@ namespace RTS.Pathfinding
             var unitGO = Instantiate(unitPrefab, new Vector3(worldPos.x, worldPos.y, 0), Quaternion.identity);
 
             // Create agent
-            var gridPos = navigationController.WorldToGrid(worldPos, out var actualRoom);
+            int actualRoom;
+            var gridPos = navigationController.WorldToGrid(worldPos, out actualRoom);
             var agent = new Agent(unitGO.GetInstanceID(), type, gridPos, actualRoom, navigationController);
 
+            // Add motor component first
+            var motor = unitGO.GetComponent<Motor>();
+            if (motor == null)
+                motor = unitGO.AddComponent<Motor>();
+
             // Add mover component
-            var mover = unitGO.AddComponent<RTSUnitMover>();
+            var mover = unitGO.GetComponent<RTSUnitMover>();
+            if (mover == null)
+                mover = unitGO.AddComponent<RTSUnitMover>();
+
+            // Initialize components
             mover.Initialize(agent, navigationController);
 
             // Register agent
             navigationController.RegisterAgent(agent);
+
+            Debug.Log(
+                $"Spawned {type} unit at world position {worldPos}, grid position {gridPos} in room {actualRoom}");
         }
     }
 }

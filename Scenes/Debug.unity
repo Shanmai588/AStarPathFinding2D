@@ -288,7 +288,7 @@ MonoBehaviour:
   showPaths: 1
   showReservations: 1
   roomBoundColor: {r: 0, g: 0, b: 1, a: 1}
-  doorColor: {r: 0, g: 1, b: 0, a: 1}
+  doorColor: {r: 1, g: 0.96478325, b: 0, a: 1}
   pathColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   reservationColor: {r: 1, g: 0, b: 0, a: 1}
 --- !u!114 &2104278695

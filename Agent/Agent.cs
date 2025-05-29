@@ -42,7 +42,7 @@ namespace RTS.Pathfinding
 
         public event Action<Path> OnPathReceived;
         public event Action OnPathFailed;
-
+        
         public void RequestPath(Vector2Int target, int targetRoom)
         {
             var request = new PathRequest(
