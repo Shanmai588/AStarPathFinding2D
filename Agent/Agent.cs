@@ -1,222 +1,189 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
     public class Agent : MonoBehaviour
-{
-    private int agentId;
-    private Vector2Int currentPosition;
-    private int currentRoomId;
-    private AgentType type;
-    private float moveSpeed = 5f;
-    private Path currentPath;
-    private ICostProvider costProvider;
-    private MovementCapabilities movementCapabilities;
-    private PathRequestManager pathRequestManager;
-    private GridManager gridManager;
-    private float moveTimer = 0f;
-
-    public int AgentId => agentId;
-    public Vector2Int CurrentPosition => currentPosition;
-    public int CurrentRoomId => currentRoomId;
-    public AgentType Type => type;
-    
-    // Expose path for RTSUnitMover
-    public Path CurrentPath => currentPath;
-    public bool HasPath => currentPath != null && currentPath.IsValid;
-
-    void Awake()
     {
-        agentId = GetInstanceID();
-        gridManager = FindObjectOfType<GridManager>();
-        pathRequestManager = Singleton<PathRequestManager>.Instance;
-        InitializeMovementCapabilities();
-    }
+        [SerializeField] private int agentId;
+        [SerializeField] private Vector2Int currentPosition;
+        [SerializeField] private int currentRoomId;
+        [SerializeField] private AgentType type = AgentType.INFANTRY;
+        [SerializeField] private MovementCapabilities capabilities;
 
-    void Start()
-    {
-        // Set default cost provider based on agent type
-        switch (type)
-        {
-            case AgentType.Infantry:
-                costProvider = new TerrainAwareCostProvider();
-                break;
-            case AgentType.Vehicle:
-                costProvider = new StandardCostProvider();
-                break;
-            case AgentType.Flying:
-                costProvider = new StandardCostProvider();
-                break;
-            case AgentType.Naval:
-                costProvider = new TerrainAwareCostProvider();
-                break;
-        }
-        
-        // Initialize position from transform
-        currentPosition = new Vector2Int(
-            Mathf.RoundToInt(transform.position.x),
-            Mathf.RoundToInt(transform.position.y)
-        );
-    }
+        private Path currentPath;
+        private ICostProvider costProvider;
+        private RoomBasedNavigationController navigationController;
 
-    private void InitializeMovementCapabilities()
-    {
-        movementCapabilities = new MovementCapabilities();
-        
-        switch (type)
-        {
-            case AgentType.Infantry:
-                movementCapabilities.CanFly = false;
-                movementCapabilities.CanSwim = false;
-                movementCapabilities.Size = 1f;
-                movementCapabilities.AllowedTerrain = new List<TileType>
-                {
-                    TileType.Ground, TileType.Road, TileType.Forest
-                };
-                break;
-                
-            case AgentType.Vehicle:
-                movementCapabilities.CanFly = false;
-                movementCapabilities.CanSwim = false;
-                movementCapabilities.Size = 2f;
-                movementCapabilities.AllowedTerrain = new List<TileType>
-                {
-                    TileType.Ground, TileType.Road
-                };
-                break;
-                
-            case AgentType.Flying:
-                movementCapabilities.CanFly = true;
-                movementCapabilities.CanSwim = false;
-                movementCapabilities.Size = 1f;
-                movementCapabilities.AllowedTerrain = new List<TileType>
-                {
-                    TileType.Ground, TileType.Road, TileType.Forest, 
-                    TileType.Water, TileType.Mountain
-                };
-                break;
-                
-            case AgentType.Naval:
-                movementCapabilities.CanFly = false;
-                movementCapabilities.CanSwim = true;
-                movementCapabilities.Size = 3f;
-                movementCapabilities.AllowedTerrain = new List<TileType>
-                {
-                    TileType.Water
-                };
-                break;
-        }
-    }
+        public event Action<Path> OnPathReceived;
+        public event Action OnPathFailed;
 
-    public void RequestPath(Vector2Int target, int targetRoom)
-    {
-        var request = new PathRequest
-        {
-            AgentId = agentId,
-            StartPos = currentPosition,
-            EndPos = target,
-            StartRoomId = currentRoomId,
-            EndRoomId = targetRoom,
-            CostProvider = costProvider,
-            OnComplete = OnPathComplete,
-            Priority = RequestPriority.Normal
-        };
+        public int AgentId => agentId;
+        public Vector2Int CurrentPosition => currentPosition;
+        public int CurrentRoomId => currentRoomId;
+        public AgentType Type => type;
 
-        if (pathRequestManager != null)
+        private void Awake()
         {
-            pathRequestManager.QueueRequest(request);
-        }
-        else
-        {
-            Debug.LogError("PathRequestManager not found!");
-        }
-    }
-
-    private void OnPathComplete(Path path)
-    {
-        if (path != null && path.IsValid)
-        {
-            currentPath = path;
-            Debug.Log($"Agent {agentId} received valid path with {path.Waypoints.Count} waypoints");
-        }
-        else
-        {
-            if (path != null)
-                Debug.Log($"Agent {agentId} received valid path");
-            else
-                Debug.Log($"Agent {agentId} received invalid path");
-            currentPath = null;
-        }
-    }
-
-    public void UpdateMovement(float deltaTime)
-    {
-        if (currentPath == null || !currentPath.IsValid)
-            return;
-
-        if (currentPath.IsComplete(currentPosition))
-        {
-            currentPath = null;
-            return;
-        }
-
-        moveTimer += deltaTime;
-        
-        if (moveTimer >= 1f / moveSpeed)
-        {
-            moveTimer = 0f;
-            
-            var nextPos = currentPath.GetNextWaypoint(currentPosition);
-            if (nextPos != currentPosition)
+            if (capabilities == null)
             {
-                // Check if position is available
-                var tile = gridManager.GetTile(currentRoomId, nextPos.x, nextPos.y);
-                if (tile != null && !tile.IsOccupied() && tile.IsWalkable)
+                capabilities = new MovementCapabilities();
+            }
+
+            if (costProvider == null)
+            {
+                costProvider = new StandardCostProvider();
+            }
+
+            agentId = GetInstanceID(); // Simple ID assignment
+        }
+
+        private void Start()
+        {
+            navigationController = FindObjectOfType<RoomBasedNavigationController>();
+            if (navigationController != null)
+            {
+                // Initialize position based on current transform
+                InitializePositionFromTransform();
+                navigationController.RegisterAgent(this);
+            }
+        }
+
+        private void InitializePositionFromTransform()
+        {
+            if (navigationController != null)
+            {
+                // Get current world position and convert to grid coordinates
+                Vector2 worldPos = transform.position;
+                int roomId;
+                Vector2Int gridPos = navigationController.WorldToGrid(worldPos, out roomId);
+
+                // Update agent's position
+                currentPosition = gridPos;
+                currentRoomId = roomId;
+
+                // Verify the position is valid, if not find closest valid position
+                if (!navigationController.IsPositionWalkable(roomId, gridPos))
                 {
-                    // Clear old position
-                    var oldTile = gridManager.GetTile(currentRoomId, currentPosition.x, currentPosition.y);
-                    oldTile?.SetOccupant(null);
-                    
-                    // Move to new position
-                    currentPosition = nextPos;
-                    tile.SetOccupant(this);
-                    
-                    // Update visual position
-                    transform.position = new Vector3(nextPos.x, nextPos.y, 0);
+                    var closestValid = navigationController.FindClosestReachablePoint(
+                        gridPos, gridPos, roomId, capabilities);
+                    currentPosition = closestValid;
+
+                    // Update transform to match the corrected position
+                    var correctedWorldPos = navigationController.GridToWorld(roomId, closestValid);
+                    transform.position = new Vector3(correctedWorldPos.x, correctedWorldPos.y, transform.position.z);
                 }
-                else
+
+                // Occupy the tile
+                var tile = navigationController.GetTile(roomId, currentPosition.x, currentPosition.y);
+                if (tile != null && tile.isWalkable)
                 {
-                    // Path blocked, request new path
-                    var target = currentPath.GetWaypoints()[currentPath.GetWaypoints().Count - 1];
-                    RequestPath(target, currentRoomId);
+                    tile.SetOccupant(this);
                 }
             }
         }
-    }
 
-    public MovementCapabilities GetMovementCapabilities()
-    {
-        return movementCapabilities;
-    }
-    
-    public void SetPosition(Vector2Int position, int roomId)
-    {
-        currentPosition = position;
-        currentRoomId = roomId;
-    }
-    
-    public void ClearPath()
-    {
-        currentPath = null;
-    }
-}
+        private void OnDestroy()
+        {
+            if (navigationController != null)
+            {
+                navigationController.UnregisterAgent(this);
+            }
+        }
 
-    public class MovementCapabilities
-    {
-        public bool CanFly { get; set; }
-        public bool CanSwim { get; set; }
-        public float Size { get; set; }
-        public List<TileType> AllowedTerrain { get; set; } = new();
+        public void RequestPath(Vector2Int target, int targetRoom)
+        {
+            if (navigationController == null) return;
+
+            var request = new PathRequest
+            {
+                agentId = agentId,
+                startPos = currentPosition,
+                endPos = target,
+                startRoomId = currentRoomId,
+                endRoomId = targetRoom,
+                costProvider = costProvider,
+                priority = RequestPriority.NORMAL,
+                onComplete = OnPathRequestComplete
+            };
+
+            navigationController.RequestPath(request);
+        }
+
+        public void RequestPathToClosestReachable(Vector2Int target, int targetRoom)
+        {
+            if (navigationController == null) return;
+
+            var closestPoint = navigationController.FindClosestReachablePoint(
+                currentPosition, target, targetRoom, capabilities);
+
+            RequestPath(closestPoint, targetRoom);
+        }
+
+        public Path GetCurrentPath()
+        {
+            return currentPath;
+        }
+
+        public MovementCapabilities GetMovementCapabilities()
+        {
+            return capabilities;
+        }
+
+        public void SetCostProvider(ICostProvider provider)
+        {
+            costProvider = provider;
+        }
+
+        public void UpdatePosition(Vector2Int newPosition, int newRoomId)
+        {
+            // Clear occupancy from old position
+            if (navigationController != null)
+            {
+                var oldTile = navigationController.GetTile(currentRoomId, currentPosition.x, currentPosition.y);
+                if (oldTile != null && oldTile.occupyingAgent == this)
+                {
+                    oldTile.SetOccupant(null);
+                }
+            }
+
+            currentPosition = newPosition;
+            currentRoomId = newRoomId;
+
+            // Set occupancy on new position
+            if (navigationController != null)
+            {
+                var newTile = navigationController.GetTile(newRoomId, newPosition.x, newPosition.y);
+                if (newTile != null && newTile.isWalkable)
+                {
+                    newTile.SetOccupant(this);
+                }
+            }
+        }
+
+        private void OnPathRequestComplete(Path path)
+        {
+            currentPath = path;
+            if (path != null && path.isValid)
+            {
+                OnPathReceived?.Invoke(path);
+            }
+            else
+            {
+                OnPathFailed?.Invoke();
+            }
+        }
+
+        private Vector2Int FindClosestReachablePoint(Vector2Int target, int targetRoom)
+        {
+            if (navigationController != null)
+            {
+                return navigationController.FindClosestReachablePoint(
+                    currentPosition, target, targetRoom, capabilities);
+            }
+
+            return target;
+        }
     }
 }

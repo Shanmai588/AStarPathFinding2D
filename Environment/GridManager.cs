@@ -3,34 +3,22 @@ using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    /// <summary>
-    ///     Manages a 2D grid of tiles for pathfinding.
-    /// </summary>
-    public class GridManager : MonoBehaviour
+    
+    // Grid Management
+    public class GridManager : ITileChangeListener
     {
+        private Dictionary<int, Room> rooms = new Dictionary<int, Room>();
         private EventBus eventBus;
-        private HierarchicalPathfinder pathfinder;
-        private PathRequestManager pathRequestManager;
-        private ReservationTable reservationTable;
-        private readonly Dictionary<int, Room> rooms = new();
 
-        private void Awake()
+        public GridManager(EventBus bus)
         {
-            eventBus = new EventBus();
-            reservationTable = Singleton<ReservationTable>.Instance;
-            pathRequestManager = Singleton<PathRequestManager>.Instance;
-            pathfinder = Singleton<HierarchicalPathfinder>.Instance;
-        }
-
-        private void Update()
-        {
-            pathRequestManager.ProcessRequests();
-            reservationTable.UpdateReservations(Time.deltaTime);
+            eventBus = bus;
+            eventBus.Subscribe<TileChangedEvent>(this);
         }
 
         public Room GetRoom(int roomId)
         {
-            return rooms.TryGetValue(roomId, out var room) ? room : null;
+            return rooms.ContainsKey(roomId) ? rooms[roomId] : null;
         }
 
         public Tile GetTile(int roomId, int x, int y)
@@ -41,40 +29,46 @@ namespace RTS.Pathfinding
 
         public void UpdateTile(int roomId, int x, int y, TileType newType)
         {
-            var room = GetRoom(roomId);
-            if (room != null)
+            var tile = GetTile(roomId, x, y);
+            if (tile != null)
             {
-                var tile = room.GetTile(x, y);
-                if (tile != null)
+                var oldType = tile.type;
+                tile.type = newType;
+            
+                eventBus.Publish(new TileChangedEvent
                 {
-                    var oldType = tile.Type;
-                    tile.Type = newType;
-
-                    var tileEvent = new TileChangedEvent
-                    {
-                        RoomId = roomId,
-                        Position = new Vector2Int(x, y),
-                        OldType = oldType,
-                        NewType = newType
-                    };
-                    eventBus.Publish(tileEvent);
-                }
+                    roomId = roomId,
+                    position = new Vector2Int(x, y),
+                    oldType = oldType,
+                    newType = newType
+                });
             }
         }
 
-        public Path GetPath(PathRequest request)
+        public void AddRoom(Room room)
         {
-            return pathfinder.FindPath(request);
+            rooms[room.roomId] = room;
         }
 
-        public void RegisterForTileChanges(ITileChangeListener listener)
+        public void RemoveRoom(int roomId)
         {
-            eventBus.Subscribe(listener);
+            rooms.Remove(roomId);
         }
 
-        public void AddRoom(int roomId, Room room)
+        public Dictionary<int, Room> GetAllRooms()
         {
-            rooms[roomId] = room;
+            return rooms;
+        }
+
+        public void OnEvent(TileChangedEvent eventData)
+        {
+            OnTileChanged(eventData);
+        }
+
+        public void OnTileChanged(TileChangedEvent eventData)
+        {
+            // Handle tile change - could invalidate pathfinding cache, etc.
         }
     }
+
 }

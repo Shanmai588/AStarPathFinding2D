@@ -4,19 +4,19 @@ namespace RTS.Pathfinding
 {
     public class Reservation
     {
-        public int AgentId { get; set; }
-        public Vector2Int Position { get; set; }
-        public float StartTime { get; set; }
-        public float EndTime { get; set; }
+        public int agentId;
+        public Vector2Int position;
+        public float startTime, endTime;
 
         public bool IsActive(float currentTime)
         {
-            return currentTime >= StartTime && currentTime <= EndTime;
+            return currentTime >= startTime && currentTime <= endTime;
         }
 
         public bool IsExpired(float currentTime)
         {
-            return currentTime > EndTime;
+            return currentTime > endTime;
         }
     }
+
 }

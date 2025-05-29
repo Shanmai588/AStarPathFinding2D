@@ -4,36 +4,26 @@ namespace RTS.Pathfinding
 {
     public class Door
     {
-        public Door(Vector2Int pos, int targetRoom, Vector2Int targetPos)
+        public Vector2Int positionInRoom;
+        public int connectedRoomId;
+        public Vector2Int connectedPosition;
+        public bool isOpen = true;
+
+        public struct ConnectionInfo
         {
-            PositionInRoom = pos;
-            ConnectedRoomId = targetRoom;
-            ConnectedPosition = targetPos;
-            IsOpen = true;
+            public int roomId;
+            public Vector2Int position;
         }
-
-        public Vector2Int PositionInRoom { get; }
-
-        public int ConnectedRoomId { get; }
-
-        public Vector2Int ConnectedPosition { get; }
-
-        public bool IsOpen { get; }
 
         public ConnectionInfo GetConnectionInfo()
         {
-            return new ConnectionInfo
-            {
-                FromPosition = PositionInRoom,
-                ToRoomId = ConnectedRoomId,
-                ToPosition = ConnectedPosition,
-                IsPassable = IsOpen
-            };
+            return new ConnectionInfo { roomId = connectedRoomId, position = connectedPosition };
         }
 
         public bool IsPassable()
         {
-            return IsOpen;
+            return isOpen;
         }
     }
+
 }

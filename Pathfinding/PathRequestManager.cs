@@ -5,16 +5,14 @@ namespace RTS.Pathfinding
 {
     public class PathRequestManager
     {
-        private readonly int maxRequestsPerFrame = 5;
-        private readonly ObjectPool<PathRequest> requestPool;
-        private readonly Queue<PathRequest> requestQueue = new();
+        private Queue<PathRequest> requestQueue = new Queue<PathRequest>();
+        private ObjectPool<PathRequest> requestPool = new ObjectPool<PathRequest>();
+        private int maxRequestsPerFrame = 5;
+        private HierarchicalPathfinder pathfinder;
 
-        public PathRequestManager()
+        public PathRequestManager(HierarchicalPathfinder pf)
         {
-            requestPool = new ObjectPool<PathRequest>(
-                () => new PathRequest(),
-                request => request.Reset()
-            );
+            pathfinder = pf;
         }
 
         public void QueueRequest(PathRequest request)
@@ -24,7 +22,7 @@ namespace RTS.Pathfinding
 
         public void ProcessRequests()
         {
-            var processed = 0;
+            int processed = 0;
             while (requestQueue.Count > 0 && processed < maxRequestsPerFrame)
             {
                 var request = requestQueue.Dequeue();
@@ -35,8 +33,8 @@ namespace RTS.Pathfinding
 
         private void ExecuteRequest(PathRequest request)
         {
-            var path = request.Execute();
-            request.OnComplete?.Invoke(path);
+            var path = pathfinder.FindPath(request);
+            request.onComplete?.Invoke(path);
             requestPool.Return(request);
         }
     }

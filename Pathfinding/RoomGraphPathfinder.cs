@@ -1,146 +1,140 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    public class RoomNode
-    {
-        public int RoomId { get; set; }
-        public Vector2 CenterPosition { get; set; }
-        public List<Door> Doors { get; set; }
-
-        public float GetConnectionCost(int targetRoom)
-        {
-            foreach (var door in Doors)
-                if (door.ConnectedRoomId == targetRoom)
-                    return 1f; // Base cost
-            return float.MaxValue;
-        }
-    }
-
-    public class RoomEdge
-    {
-        public int FromRoomId { get; set; }
-        public int ToRoomId { get; set; }
-        public Door ConnectionDoor { get; set; }
-        public float Cost { get; set; }
-    }
-
     public class RoomGraphPathfinder
     {
-        private readonly Dictionary<int, List<RoomEdge>> roomConnections = new();
-        private readonly Dictionary<int, RoomNode> roomNodes = new();
+        private Dictionary<int, RoomNode> roomNodes = new Dictionary<int, RoomNode>();
+        private Dictionary<int, List<RoomEdge>> roomConnections = new Dictionary<int, List<RoomEdge>>();
 
         public List<int> FindRoomSequence(int startRoom, int endRoom)
         {
             if (startRoom == endRoom)
                 return new List<int> { startRoom };
 
-            var openSet = new HashSet<int> { startRoom };
+            // Use A* for room-level pathfinding
+            var openSet = new List<RoomNode>();
+            var closedSet = new HashSet<int>();
+            var gScore = new Dictionary<int, float>();
+            var fScore = new Dictionary<int, float>();
             var cameFrom = new Dictionary<int, int>();
-            var gScore = new Dictionary<int, float> { { startRoom, 0 } };
-            var fScore = new Dictionary<int, float> { { startRoom, GetHeuristic(startRoom, endRoom) } };
+
+            if (!roomNodes.ContainsKey(startRoom) || !roomNodes.ContainsKey(endRoom))
+                return new List<int>();
+
+            var startNode = roomNodes[startRoom];
+            var endNode = roomNodes[endRoom];
+
+            gScore[startRoom] = 0;
+            fScore[startRoom] = Vector2.Distance(startNode.centerPosition, endNode.centerPosition);
+            openSet.Add(startNode);
 
             while (openSet.Count > 0)
             {
-                var current = GetLowestFScore(openSet, fScore);
+                // Find node with lowest fScore
+                var current = openSet.OrderBy(node => fScore.GetValueOrDefault(node.roomId, float.MaxValue)).First();
 
-                if (current == endRoom)
-                    return ReconstructPath(cameFrom, current);
+                if (current.roomId == endRoom)
+                {
+                    // Reconstruct path
+                    var path = new List<int>();
+                    var currentId = endRoom;
+
+                    while (cameFrom.ContainsKey(currentId))
+                    {
+                        path.Insert(0, currentId);
+                        currentId = cameFrom[currentId];
+                    }
+
+                    path.Insert(0, startRoom);
+                    return path;
+                }
 
                 openSet.Remove(current);
+                closedSet.Add(current.roomId);
 
-                if (!roomConnections.ContainsKey(current))
-                    continue;
-
-                foreach (var edge in roomConnections[current])
+                // Check all connected rooms
+                if (roomConnections.ContainsKey(current.roomId))
                 {
-                    if (!edge.ConnectionDoor.IsPassable())
-                        continue;
-
-                    var tentativeGScore = gScore[current] + edge.Cost;
-
-                    if (!gScore.ContainsKey(edge.ToRoomId) || tentativeGScore < gScore[edge.ToRoomId])
+                    foreach (var edge in roomConnections[current.roomId])
                     {
-                        cameFrom[edge.ToRoomId] = current;
-                        gScore[edge.ToRoomId] = tentativeGScore;
-                        fScore[edge.ToRoomId] = tentativeGScore + GetHeuristic(edge.ToRoomId, endRoom);
-                        openSet.Add(edge.ToRoomId);
+                        if (closedSet.Contains(edge.toRoomId))
+                            continue;
+
+                        if (!edge.connectionDoor.IsPassable())
+                            continue;
+
+                        var neighbor = roomNodes[edge.toRoomId];
+                        var tentativeGScore = gScore[current.roomId] + edge.cost;
+
+                        if (!openSet.Contains(neighbor))
+                            openSet.Add(neighbor);
+                        else if (tentativeGScore >= gScore.GetValueOrDefault(edge.toRoomId, float.MaxValue))
+                            continue;
+
+                        cameFrom[edge.toRoomId] = current.roomId;
+                        gScore[edge.toRoomId] = tentativeGScore;
+                        fScore[edge.toRoomId] = tentativeGScore +
+                                                Vector2.Distance(neighbor.centerPosition, endNode.centerPosition);
                     }
                 }
             }
 
-            return null; // No path found
+            return new List<int>(); // No path found
         }
-
-        private int GetLowestFScore(HashSet<int> openSet, Dictionary<int, float> fScore)
-        {
-            var lowest = -1;
-            var lowestScore = float.MaxValue;
-
-            foreach (var node in openSet)
-                if (fScore.TryGetValue(node, out var score) && score < lowestScore)
-                {
-                    lowest = node;
-                    lowestScore = score;
-                }
-
-            return lowest;
-        }
-
-        private float GetHeuristic(int from, int to)
-        {
-            if (roomNodes.TryGetValue(from, out var fromNode) &&
-                roomNodes.TryGetValue(to, out var toNode))
-                return Vector2.Distance(fromNode.CenterPosition, toNode.CenterPosition);
-
-            return 0;
-        }
-
-        private List<int> ReconstructPath(Dictionary<int, int> cameFrom, int current)
-        {
-            var path = new List<int> { current };
-
-            while (cameFrom.ContainsKey(current))
-            {
-                current = cameFrom[current];
-                path.Insert(0, current);
-            }
-
-            return path;
-        }
-
+        
         public void BuildRoomGraph(Dictionary<int, Room> rooms)
         {
             roomNodes.Clear();
             roomConnections.Clear();
 
-            foreach (var kvp in rooms)
+            // Create room nodes
+            foreach (var room in rooms.Values)
             {
-                var roomId = kvp.Key;
-                var room = kvp.Value;
-
                 var node = new RoomNode
                 {
-                    RoomId = roomId,
-                    CenterPosition = new Vector2(room.Width / 2f, room.Height / 2f),
-                    Doors = room.GetDoors()
+                    roomId = room.roomId,
+                    centerPosition = room.worldPosition + new Vector2(room.width / 2f, room.height / 2f),
+                    doors = new List<Door>(room.doors)
                 };
-
-                roomNodes[roomId] = node;
-
-                var edges = new List<RoomEdge>();
-                foreach (var door in room.GetDoors())
-                    edges.Add(new RoomEdge
-                    {
-                        FromRoomId = roomId,
-                        ToRoomId = door.ConnectedRoomId,
-                        ConnectionDoor = door,
-                        Cost = 1f // Base cost, can be modified
-                    });
-
-                roomConnections[roomId] = edges;
+                roomNodes[room.roomId] = node;
+                roomConnections[room.roomId] = new List<RoomEdge>();
             }
+
+            // Create edges based on doors
+            foreach (var room in rooms.Values)
+            {
+                foreach (var door in room.doors)
+                {
+                    if (rooms.ContainsKey(door.connectedRoomId))
+                    {
+                        var edge = new RoomEdge
+                        {
+                            fromRoomId = room.roomId,
+                            toRoomId = door.connectedRoomId,
+                            connectionDoor = door,
+                            cost = CalculateRoomConnectionCost(room, rooms[door.connectedRoomId], door)
+                        };
+                        roomConnections[room.roomId].Add(edge);
+                    }
+                }
+            }
+        }
+
+        private float CalculateRoomConnectionCost(Room fromRoom, Room toRoom, Door door)
+        {
+            var fromCenter = fromRoom.worldPosition + new Vector2(fromRoom.width / 2f, fromRoom.height / 2f);
+            var toCenter = toRoom.worldPosition + new Vector2(toRoom.width / 2f, toRoom.height / 2f);
+        
+            float baseCost = Vector2.Distance(fromCenter, toCenter);
+        
+            // Add penalty if door is closed or has restrictions
+            if (!door.IsPassable())
+                baseCost *= 10f; // High penalty for closed doors
+            
+            return baseCost;
         }
     }
 }

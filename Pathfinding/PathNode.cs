@@ -4,19 +4,17 @@ namespace RTS.Pathfinding
 {
     public class PathNode
     {
-        public Vector2Int Position { get; set; }
-        public float GCost { get; set; }
-        public float HCost { get; set; }
-        public PathNode Parent { get; set; }
+        public Vector2Int position;
+        public float gCost, hCost;
+        public PathNode parent;
 
-        public float FCost => GCost + HCost;
+        public float FCost => gCost + hCost;
 
         public void Reset()
         {
-            Position = Vector2Int.zero;
-            GCost = float.MaxValue;
-            HCost = 0;
-            Parent = null;
+            gCost = hCost = 0;
+            parent = null;
         }
     }
+
 }

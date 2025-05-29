@@ -3,41 +3,30 @@ using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    // Command object representing a pathfinding request
     public class PathRequest
     {
-        public int AgentId { get; set; }
-
-        public Vector2Int StartPos { get; set; }
-
-        public Vector2Int EndPos { get; set; }
-
-        public int StartRoomId { get; set; }
-
-        public int EndRoomId { get; set; }
-
-        public ICostProvider CostProvider { get; set; }
-
-        public Action<Path> OnComplete { get; set; }
-
-        public RequestPriority Priority { get; set; }
+        public int agentId;
+        public Vector2Int startPos, endPos;
+        public int startRoomId, endRoomId;
+        public ICostProvider costProvider;
+        public Action<Path> onComplete;
+        public RequestPriority priority;
 
         public Path Execute()
         {
-            var gridManager = GameObject.FindObjectOfType<GridManager>();
-            return gridManager?.GetPath(this);
+            // This will be implemented by the pathfinding system
+            return new Path();
         }
 
         public void Reset()
         {
-            AgentId = 0;
-            StartPos = Vector2Int.zero;
-            EndPos = Vector2Int.zero;
-            StartRoomId = 0;
-            EndRoomId = 0;
-            CostProvider = null;
-            OnComplete = null;
-            Priority = RequestPriority.Normal;
+            agentId = 0;
+            startPos = endPos = Vector2Int.zero;
+            startRoomId = endRoomId = 0;
+            costProvider = null;
+            onComplete = null;
+            priority = RequestPriority.NORMAL;
         }
     }
+
 }

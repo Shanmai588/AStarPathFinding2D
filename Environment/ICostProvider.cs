@@ -3,7 +3,6 @@ using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    // Strategy pattern: Interface for calculating tile traversal costs
     public interface ICostProvider
     {
         float GetMovementCost(Tile tile, Agent agent);
@@ -15,8 +14,8 @@ namespace RTS.Pathfinding
     {
         public float GetMovementCost(Tile tile, Agent agent)
         {
-            if (!tile.IsWalkable) return float.MaxValue;
-            return tile.BaseCost;
+            if (!tile.isWalkable) return float.MaxValue;
+            return tile.baseCost;
         }
 
         public float GetHeuristicCost(Vector2Int from, Vector2Int to)
@@ -26,30 +25,25 @@ namespace RTS.Pathfinding
 
         public bool ShouldAvoidTile(Tile tile, Agent agent)
         {
-            return !tile.IsWalkable;
+            return !tile.isWalkable || (tile.IsOccupied() && tile.occupyingAgent != agent);
         }
     }
 
     public class TerrainAwareCostProvider : ICostProvider
     {
-        private readonly Dictionary<TileType, float> terrainCosts = new()
+        private Dictionary<TileType, float> terrainCosts = new Dictionary<TileType, float>
         {
-            { TileType.Road, 0.5f },
-            { TileType.Ground, 1f },
-            { TileType.Forest, 2f },
-            { TileType.Water, 3f },
-            { TileType.Mountain, 4f }
+            { TileType.Floor, 1.0f },
+            { TileType.Wall, float.MaxValue },
+            { TileType.Water, 3.0f },
+            { TileType.Rough, 2.0f },
+            { TileType.Mud, 2.5f }
         };
 
         public float GetMovementCost(Tile tile, Agent agent)
         {
-            if (!tile.IsWalkable) return float.MaxValue;
-
-            var capabilities = agent.GetMovementCapabilities();
-            if (!capabilities.AllowedTerrain.Contains(tile.Type))
-                return float.MaxValue;
-
-            return terrainCosts.TryGetValue(tile.Type, out var cost) ? cost : tile.BaseCost;
+            if (!tile.isWalkable) return float.MaxValue;
+            return terrainCosts.ContainsKey(tile.type) ? terrainCosts[tile.type] : tile.baseCost;
         }
 
         public float GetHeuristicCost(Vector2Int from, Vector2Int to)
@@ -59,22 +53,20 @@ namespace RTS.Pathfinding
 
         public bool ShouldAvoidTile(Tile tile, Agent agent)
         {
-
-            var capabilities = agent.GetMovementCapabilities();
-            return !tile.IsWalkable || !capabilities.AllowedTerrain.Contains(tile.Type);
+            return !tile.isWalkable || (tile.IsOccupied() && tile.occupyingAgent != agent);
         }
     }
 
     public class UnitAvoidanceCostProvider : ICostProvider
     {
-        private readonly float unitAvoidanceCost = 5f;
+        public float unitAvoidanceCost = 5.0f;
 
         public float GetMovementCost(Tile tile, Agent agent)
         {
-            if (!tile.IsWalkable) return float.MaxValue;
+            if (!tile.isWalkable) return float.MaxValue;
 
-            var cost = tile.BaseCost;
-            if (tile.IsOccupied())
+            float cost = tile.baseCost;
+            if (tile.IsOccupied() && tile.occupyingAgent != agent)
                 cost += unitAvoidanceCost;
 
             return cost;
@@ -87,7 +79,7 @@ namespace RTS.Pathfinding
 
         public bool ShouldAvoidTile(Tile tile, Agent agent)
         {
-            return !tile.IsWalkable;
+            return !tile.isWalkable;
         }
     }
 }

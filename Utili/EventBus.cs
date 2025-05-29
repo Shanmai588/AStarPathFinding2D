@@ -3,16 +3,21 @@ using System.Collections.Generic;
 
 namespace RTS.Pathfinding
 {
+    public interface IEventListener<T>
+    {
+        void OnEvent(T eventData);
+    }
+
     public class EventBus
     {
-        private readonly Dictionary<Type, List<object>> listeners = new();
+        private Dictionary<Type, List<object>> listeners = new Dictionary<Type, List<object>>();
 
         public void Subscribe<T>(IEventListener<T> listener)
         {
             var type = typeof(T);
             if (!listeners.ContainsKey(type))
                 listeners[type] = new List<object>();
-
+        
             listeners[type].Add(listener);
         }
 
@@ -27,13 +32,14 @@ namespace RTS.Pathfinding
         {
             var type = typeof(T);
             if (listeners.ContainsKey(type))
+            {
                 foreach (var listener in listeners[type])
-                    ((IEventListener<T>)listener).OnEvent(eventData);
+                {
+                    if (listener is IEventListener<T> typedListener)
+                        typedListener.OnEvent(eventData);
+                }
+            }
         }
     }
 
-    public interface IEventListener<T>
-    {
-        void OnEvent(T eventData);
-    }
 }

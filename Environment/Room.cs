@@ -5,30 +5,34 @@ namespace RTS.Pathfinding
 {
     public class Room
     {
-        private readonly Dictionary<int, Room> connectedRooms = new();
-        private readonly List<Door> doors = new();
-        private readonly Tile[,] grid;
+        public int roomId;
+        public int width, height;
+        public Vector2 worldPosition;
+        public Tile[,] grid;
+        public List<Door> doors = new List<Door>();
+        public Dictionary<int, Room> connectedRooms = new Dictionary<int, Room>();
 
-        public Room(int id, int w, int h)
+        public Room(int id, int w, int h, Vector2 worldPos)
         {
-            RoomId = id;
-            Width = w;
-            Height = h;
-            grid = new Tile[w, h];
-            InitializeGrid();
-        }
+            roomId = id;
+            width = w;
+            height = h;
+            worldPosition = worldPos;
+            grid = new Tile[width, height];
 
-        public int RoomId { get; }
-
-        public int Width { get; }
-
-        public int Height { get; }
-
-        private void InitializeGrid()
-        {
-            for (var x = 0; x < Width; x++)
-            for (var y = 0; y < Height; y++)
-                grid[x, y] = new Tile(new Vector2Int(x, y), TileType.Ground);
+            // Initialize grid
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    grid[x, y] = new Tile
+                    {
+                        position = new Vector2Int(x, y),
+                        type = TileType.Floor,
+                        isWalkable = true
+                    };
+                }
+            }
         }
 
         public Tile GetTile(int x, int y)
@@ -46,55 +50,41 @@ namespace RTS.Pathfinding
 
         public List<Door> GetDoors()
         {
-            return new List<Door>(doors);
+            return doors;
         }
 
         public bool IsValidPosition(int x, int y)
         {
-            return x >= 0 && x < Width && y >= 0 && y < Height;
+            return x >= 0 && x < width && y >= 0 && y < height;
         }
 
         public List<Vector2Int> GetNeighbors(int x, int y)
         {
             var neighbors = new List<Vector2Int>();
-            Vector2Int[] directions =
+            var directions = new Vector2Int[]
             {
-                new(0, 1), // Up
-                new(1, 0), // Right
-                new(0, -1), // Down
-                new(-1, 0), // Left
-                new(1, 1), // Up-Right
-                new(1, -1), // Down-Right
-                new(-1, -1), // Down-Left
-                new(-1, 1) // Up-Left
+                Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right
             };
 
             foreach (var dir in directions)
             {
-                var newX = x + dir.x;
-                var newY = y + dir.y;
-                if (IsValidPosition(newX, newY)) neighbors.Add(new Vector2Int(newX, newY));
+                var neighbor = new Vector2Int(x, y) + dir;
+                if (IsValidPosition(neighbor.x, neighbor.y))
+                    neighbors.Add(neighbor);
             }
 
             return neighbors;
         }
 
-        public void AddDoor(Door door)
+        public Vector2Int WorldToGrid(Vector2 worldPos)
         {
-            doors.Add(door);
+            var localPos = worldPos - worldPosition;
+            return new Vector2Int(Mathf.FloorToInt(localPos.x), Mathf.FloorToInt(localPos.y));
         }
 
-        public void AddConnectedRoom(int roomId, Room room)
+        public Vector2 GridToWorld(Vector2Int gridPos)
         {
-            connectedRooms[roomId] = room;
+            return worldPosition + new Vector2(gridPos.x, gridPos.y);
         }
-    }
-
-    public struct ConnectionInfo
-    {
-        public Vector2Int FromPosition;
-        public int ToRoomId;
-        public Vector2Int ToPosition;
-        public bool IsPassable;
     }
 }

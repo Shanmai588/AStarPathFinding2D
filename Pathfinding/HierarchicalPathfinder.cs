@@ -1,107 +1,166 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace RTS.Pathfinding
 {
-    public class HierarchicalPathfinder 
+    public class HierarchicalPathfinder
     {
-        private readonly PathCache cache = new();
-        private readonly AStarPathfinder localPathfinder = new();
-        private readonly RoomGraphPathfinder roomPathfinder = new();
-        private  GridManager gridManager;
+        private RoomGraphPathfinder roomPathfinder = new RoomGraphPathfinder();
+        private AStarPathfinder localPathfinder = new AStarPathfinder();
+        private PathCache cache = new PathCache();
+        private GridManager gridManager;
+
+        public void SetGridManager(GridManager gm)
+        {
+            gridManager = gm;
+            // Build room graph when grid manager is set
+            if (gridManager != null)
+            {
+                roomPathfinder.BuildRoomGraph(gridManager.GetAllRooms());
+            }
+        }
+
         public Path FindPath(PathRequest request)
         {
-            if (!gridManager) gridManager = GameObject.FindObjectOfType<GridManager>();;
             // Check cache first
             var cacheKey = new PathCacheKey
             {
-                Start = request.StartPos,
-                End = request.EndPos,
-                RoomId = request.StartRoomId,
-                CostProviderType = request.CostProvider.GetType().Name
+                start = request.startPos,
+                end = request.endPos,
+                roomId = request.startRoomId,
+                costProviderType = request.costProvider.GetType().Name
             };
 
             var cachedPath = cache.GetCachedPath(cacheKey);
-            if (cachedPath != null && cachedPath.IsValid)
+            if (cachedPath != null)
                 return cachedPath;
 
-            // If same room, use local pathfinder
-            if (request.StartRoomId == request.EndRoomId)
+            Path path;
+            if (request.startRoomId == request.endRoomId)
             {
-                var room = gridManager.GetRoom(request.StartRoomId);
-                var path = localPathfinder.FindPath(request.StartPos, request.EndPos, room, request.CostProvider);
-                cache.CachePath(cacheKey, path);
-                return path;
+                // Same room - use local pathfinding
+                path = FindLocalPath(request.startRoomId, request.startPos, request.endPos, request.costProvider);
+            }
+            else
+            {
+                // Cross-room pathfinding
+                var roomPath = FindRoomPath(request.startRoomId, request.endRoomId);
+                path = CombineRoomPaths(roomPath, request);
             }
 
-            // Different rooms, use hierarchical approach
-            var roomSequence = roomPathfinder.FindRoomSequence(request.StartRoomId, request.EndRoomId);
-            if (roomSequence == null || roomSequence.Count == 0)
-                return new Path { IsValid = false };
+            cache.CachePath(cacheKey, path);
+            return path;
+        }
 
-            var fullPath = new List<Vector2Int>();
-            var currentPos = request.StartPos;
-            var currentRoomId = request.StartRoomId;
+        private List<int> FindRoomPath(int startRoom, int endRoom)
+        {
+            return roomPathfinder.FindRoomSequence(startRoom, endRoom);
+        }
 
-            for (var i = 1; i < roomSequence.Count; i++)
+        private Path FindLocalPath(int roomId, Vector2Int start, Vector2Int end, ICostProvider costProvider)
+        {
+            var gridManager = RoomBasedNavigationController.Instance?.GetGridManager();
+            var room = gridManager?.GetRoom(roomId);
+
+            if (room == null)
             {
-                var nextRoomId = roomSequence[i];
-                var door = FindDoorBetweenRooms(currentRoomId, nextRoomId);
+                return new Path { isValid = false };
+            }
 
-                if (door == null) return new Path { IsValid = false };
+            return localPathfinder.FindPath(start, end, room, costProvider);
+        }
 
-                // Path to door in current room
+        private Path CombineRoomPaths(List<int> roomPath, PathRequest request)
+        {
+            if (roomPath.Count == 0)
+                return new Path { isValid = false };
+
+            if (roomPath.Count == 1)
+            {
+                // Single room path
+                return FindLocalPath(roomPath[0], request.startPos, request.endPos, request.costProvider);
+            }
+
+            var combinedPath = new Path();
+            var gridManager = RoomBasedNavigationController.Instance?.GetGridManager();
+
+            if (gridManager == null)
+                return new Path { isValid = false };
+
+            // For each room transition, find the path to the door
+            for (int i = 0; i < roomPath.Count - 1; i++)
+            {
+                var currentRoomId = roomPath[i];
+                var nextRoomId = roomPath[i + 1];
                 var currentRoom = gridManager.GetRoom(currentRoomId);
-                var pathToDoor =
-                    localPathfinder.FindPath(currentPos, door.PositionInRoom, currentRoom, request.CostProvider);
 
-                if (!pathToDoor.IsValid) return new Path { IsValid = false };
+                if (currentRoom == null) continue;
 
-                fullPath.AddRange(pathToDoor.GetWaypoints());
+                // Find the door connecting current room to next room
+                var door = currentRoom.doors.FirstOrDefault(d => d.connectedRoomId == nextRoomId);
+                if (door == null) continue;
 
-                // Move to next room
-                currentPos = door.ConnectedPosition;
-                currentRoomId = nextRoomId;
+                Vector2Int startPos, endPos;
+
+                if (i == 0)
+                {
+                    // First room: start from request start position
+                    startPos = request.startPos;
+                }
+                else
+                {
+                    // Middle room: start from entry door
+                    var entryDoor = currentRoom.doors.FirstOrDefault(d => d.connectedRoomId == roomPath[i - 1]);
+                    startPos = entryDoor?.positionInRoom ?? Vector2Int.zero;
+                }
+
+                if (i == roomPath.Count - 2)
+                {
+                    // Last transition: go to final destination in next room
+                    var nextRoom = gridManager.GetRoom(nextRoomId);
+                    if (nextRoom != null)
+                    {
+                        // Path from door to final destination
+                        var pathToDoor = FindLocalPath(currentRoomId, startPos, door.positionInRoom,
+                            request.costProvider);
+                        var pathToEnd = FindLocalPath(nextRoomId, door.connectedPosition, request.endPos,
+                            request.costProvider);
+
+                        // Combine paths
+                        if (pathToDoor.isValid && pathToEnd.isValid)
+                        {
+                            combinedPath.waypoints.AddRange(pathToDoor.waypoints);
+                            combinedPath.waypoints.AddRange(pathToEnd.waypoints
+                                .Skip(1)); // Skip duplicate door position
+                            combinedPath.totalCost += pathToDoor.totalCost + pathToEnd.totalCost;
+                        }
+                    }
+                }
+                else
+                {
+                    // Middle room: go to exit door
+                    endPos = door.positionInRoom;
+                    var segmentPath = FindLocalPath(currentRoomId, startPos, endPos, request.costProvider);
+
+                    if (segmentPath.isValid)
+                    {
+                        if (combinedPath.waypoints.Count == 0)
+                        {
+                            combinedPath.waypoints.AddRange(segmentPath.waypoints);
+                        }
+                        else
+                        {
+                            combinedPath.waypoints.AddRange(segmentPath.waypoints.Skip(1)); // Skip duplicate position
+                        }
+
+                        combinedPath.totalCost += segmentPath.totalCost;
+                    }
+                }
             }
 
-            // Path to final destination
-            var finalRoom = GameObject.FindObjectOfType<GridManager>().GetRoom(request.EndRoomId);
-            var finalPath = localPathfinder.FindPath(currentPos, request.EndPos, finalRoom, request.CostProvider);
-
-            if (!finalPath.IsValid) return new Path { IsValid = false };
-
-            fullPath.AddRange(finalPath.GetWaypoints());
-
-            var completePath = new Path
-            {
-                Waypoints = fullPath,
-                IsValid = true,
-                TotalCost = CalculateTotalCost(fullPath, request.CostProvider)
-            };
-
-            cache.CachePath(cacheKey, completePath);
-            return completePath;
-        }
-
-        private Door FindDoorBetweenRooms(int fromRoom, int toRoom)
-        {
-            var gridManager = GameObject.FindObjectOfType<GridManager>();
-            var room = gridManager.GetRoom(fromRoom);
-            var doors = room.GetDoors();
-
-            foreach (var door in doors)
-                if (door.ConnectedRoomId == toRoom)
-                    return door;
-
-            return null;
-        }
-
-        private float CalculateTotalCost(List<Vector2Int> waypoints, ICostProvider costProvider)
-        {
-            float total = 0;
-            for (var i = 1; i < waypoints.Count; i++)
-                total += costProvider.GetHeuristicCost(waypoints[i - 1], waypoints[i]);
-            return total;
+            combinedPath.isValid = combinedPath.waypoints.Count > 0;
+            return combinedPath;
         }
     }
 }

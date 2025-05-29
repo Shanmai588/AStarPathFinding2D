@@ -2,27 +2,27 @@ namespace RTS.Pathfinding
 {
     public enum TileType
     {
-        Ground,
+        Floor,
+        Wall,
         Water,
-        Mountain,
-        Forest,
-        Road,
-        Building,
-        Blocked
+        Rough,
+        Mud
     }
 
     public enum AgentType
     {
-        Infantry,
-        Vehicle,
-        Flying,
-        Naval
+        INFANTRY,
+        VEHICLE,
+        FLYING,
+        NAVAL
     }
 
     public enum RequestPriority
     {
-        High,
-        Normal,
-        Low
+        HIGH,
+        NORMAL,
+        LOW
     }
+
+    
 }
