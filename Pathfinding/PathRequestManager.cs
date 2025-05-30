@@ -14,7 +14,7 @@ namespace RTS.Pathfinding
         {
             requestQueue = new Queue<PathRequest>();
             requestPool = new ObjectPool<PathRequest>(
-                () => new PathRequest(0, Vector2Int.zero, Vector2Int.zero, 0, 0, null, null),
+                () => new PathRequest(0, Vector2Int.zero, Vector2Int.zero, 0, 0, null, null, null),
                 req => req.Reset()
             );
             maxRequestsPerFrame = maxPerFrame;

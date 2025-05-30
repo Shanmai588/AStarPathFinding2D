@@ -7,7 +7,7 @@ namespace RTS.Pathfinding
     {
         public PathRequest(int agentId, Vector2Int start, Vector2Int end,
             int startRoom, int endRoom, ICostProvider provider,
-            Action<Path> onComplete, RequestPriority priority = RequestPriority.Normal)
+            Action<Path> onComplete, Agent agent, RequestPriority priority = RequestPriority.Normal)
         {
             AgentId = agentId;
             StartPos = start;
@@ -16,6 +16,7 @@ namespace RTS.Pathfinding
             EndRoomId = endRoom;
             CostProvider = provider;
             OnComplete = onComplete;
+            Agent = agent;
             Priority = priority;
         }
 
@@ -27,6 +28,7 @@ namespace RTS.Pathfinding
         public ICostProvider CostProvider { get; private set; }
         public Action<Path> OnComplete { get; private set; }
         public RequestPriority Priority { get; private set; }
+        public Agent Agent { get; private set; }
 
         public Path Execute(HierarchicalPathfinder pathfinder)
         {
@@ -37,6 +39,7 @@ namespace RTS.Pathfinding
         {
             OnComplete = null;
             CostProvider = null;
+            Agent = null;
         }
     }
 }

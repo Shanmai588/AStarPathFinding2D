@@ -48,8 +48,6 @@ namespace RTS.Pathfinding
         {
             // Spawn an infantry unit
             SpawnUnit(AgentType.Infantry, new Vector2(5, 5), 1);
-
-           
         }
 
         private void SpawnUnit(AgentType type, Vector2 worldPos, int roomId)

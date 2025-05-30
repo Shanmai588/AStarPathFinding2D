@@ -17,7 +17,7 @@ namespace RTS.Pathfinding
             nodeMap = new Dictionary<Vector2Int, PathNode>();
         }
 
-        public Path FindPath(Vector2Int start, Vector2Int goal, Room room, ICostProvider costProvider)
+        public Path FindPath(Vector2Int start, Vector2Int goal, Room room, ICostProvider costProvider, Agent agent)
         {
             nodeMap.Clear();
             var openSet = new SortedSet<PathNode>(Comparer<PathNode>.Create((a, b) =>
@@ -52,10 +52,14 @@ namespace RTS.Pathfinding
                         continue;
 
                     var tile = room.GetTile(neighbor.Position.x, neighbor.Position.y);
-                    if (tile == null || costProvider.ShouldAvoidTile(tile, null))
+                    if (tile == null || costProvider.ShouldAvoidTile(tile, agent))
                         continue;
 
-                    var tentativeGCost = current.GCost + costProvider.GetMovementCost(tile, null);
+                    var movementCost = costProvider.GetMovementCost(tile, agent);
+                    if (movementCost >= float.MaxValue)
+                        continue; // Can't traverse this tile
+
+                    var tentativeGCost = current.GCost + movementCost;
 
                     var neighborNode = GetOrCreateNode(neighbor.Position);
                     var isNewNode = !openSet.Contains(neighborNode);

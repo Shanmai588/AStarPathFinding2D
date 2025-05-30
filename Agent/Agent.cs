@@ -42,12 +42,25 @@ namespace RTS.Pathfinding
 
         public event Action<Path> OnPathReceived;
         public event Action OnPathFailed;
-        
+
         public void RequestPath(Vector2Int target, int targetRoom)
         {
+            // If target room is invalid, find closest room
+            if (targetRoom == -1)
+            {
+                Debug.LogWarning($"Target room is invalid. Finding closest room to target {target}");
+                targetRoom = FindClosestRoom(target);
+                if (targetRoom == -1)
+                {
+                    Debug.LogError("No valid room found!");
+                    OnPathFailed?.Invoke();
+                    return;
+                }
+            }
+
             var request = new PathRequest(
                 AgentId, CurrentPosition, target, CurrentRoomId, targetRoom,
-                costProvider, OnPathFound
+                costProvider, OnPathFound, this
             );
 
             navController.GetPath(request);
@@ -55,11 +68,47 @@ namespace RTS.Pathfinding
 
         public void RequestPathToClosestReachable(Vector2Int target, int targetRoom)
         {
+            // If target room is invalid, find closest room
+            if (targetRoom == -1)
+            {
+                targetRoom = FindClosestRoom(target);
+                if (targetRoom == -1)
+                {
+                    Debug.LogError("No valid room found!");
+                    OnPathFailed?.Invoke();
+                    return;
+                }
+            }
+
             var reachableTarget = navController.FindClosestReachablePoint(
                 CurrentPosition, target, targetRoom, capabilities
             );
 
+            Debug.Log(
+                $"Agent {AgentId}: Requesting path to closest reachable point {reachableTarget} (original target: {target})");
             RequestPath(reachableTarget, targetRoom);
+        }
+
+        private int FindClosestRoom(Vector2Int gridPos)
+        {
+            var rooms = navController.GetAllRooms();
+            var closestRoom = -1;
+            var minDistance = float.MaxValue;
+
+            foreach (var kvp in rooms)
+            {
+                var room = kvp.Value;
+                var roomCenter = new Vector2Int(room.Width / 2, room.Height / 2);
+                var distance = Vector2Int.Distance(gridPos, roomCenter);
+
+                if (distance < minDistance)
+                {
+                    minDistance = distance;
+                    closestRoom = room.RoomId;
+                }
+            }
+
+            return closestRoom;
         }
 
         public Path GetCurrentPath()

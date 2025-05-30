@@ -5,51 +5,68 @@ namespace RTS.Pathfinding
 {
     public class Room
     {
-        private readonly Dictionary<int, Room> connectedRooms;
-        private readonly List<Door> doors;
-        private readonly Tile[,] grid;
+        private int roomId;
+        private int width, height;
+        private int minX, minY; // Minimum grid coordinates (can be negative)
+        private Vector2 worldPosition;
+        private Tile[,] grid;
+        private List<Door> doors;
+        private Dictionary<int, Room> connectedRooms;
 
-        public Room(int id, int w, int h, Vector2 worldPos)
+        public int RoomId => roomId;
+        public int Width => width;
+        public int Height => height;
+        public int MinX => minX;
+        public int MinY => minY;
+        public int MaxX => minX + width - 1;
+        public int MaxY => minY + height - 1;
+        public Vector2 WorldPosition => worldPosition;
+
+        public Room(int id, int w, int h, Vector2 worldPos, int gridMinX = 0, int gridMinY = 0)
         {
-            RoomId = id;
-            Width = w;
-            Height = h;
-            WorldPosition = worldPos;
-            grid = new Tile[Width, Height];
+            roomId = id;
+            width = w;
+            height = h;
+            worldPosition = worldPos;
+            minX = gridMinX;
+            minY = gridMinY;
+            grid = new Tile[width, height];
             doors = new List<Door>();
             connectedRooms = new Dictionary<int, Room>();
 
-            // Initialize tiles
-            for (var x = 0; x < Width; x++)
-            for (var y = 0; y < Height; y++)
-                grid[x, y] = new Tile(new Vector2Int(x, y), TileType.Ground);
+            // Initialize tiles with correct grid positions
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    int gridX = minX + x;
+                    int gridY = minY + y;
+                    grid[x, y] = new Tile(new Vector2Int(gridX, gridY), TileType.Ground);
+                }
+            }
         }
-
-        public int RoomId { get; }
-
-        public int Width { get; }
-
-        public int Height { get; }
-
-        public Vector2 WorldPosition { get; }
 
         public Tile GetTile(int x, int y)
         {
-            if (IsValidPosition(x, y))
-                return grid[x, y];
+            // Convert grid coordinates to array indices
+            int arrayX = x - minX;
+            int arrayY = y - minY;
+            
+            if (arrayX >= 0 && arrayX < width && arrayY >= 0 && arrayY < height)
+                return grid[arrayX, arrayY];
             return null;
         }
 
         public void SetTile(int x, int y, Tile tile)
         {
-            if (IsValidPosition(x, y))
-                grid[x, y] = tile;
+            int arrayX = x - minX;
+            int arrayY = y - minY;
+            
+            if (arrayX >= 0 && arrayX < width && arrayY >= 0 && arrayY < height)
+                grid[arrayX, arrayY] = tile;
         }
 
-        public List<Door> GetDoors()
-        {
-            return new List<Door>(doors);
-        }
+        public List<Door> GetDoors() => new List<Door>(doors);
 
         public void AddDoor(Door door)
         {
@@ -58,24 +75,23 @@ namespace RTS.Pathfinding
 
         public bool IsValidPosition(int x, int y)
         {
-            return x >= 0 && x < Width && y >= 0 && y < Height;
+            return x >= minX && x <= MaxX && y >= minY && y <= MaxY;
         }
 
         public List<Vector2Int> GetNeighbors(int x, int y)
         {
             var neighbors = new List<Vector2Int>();
-            Vector2Int[] directions =
-            {
-                new(0, 1), new(1, 0),
-                new(0, -1), new(-1, 0),
-                new(1, 1), new(-1, 1),
-                new(1, -1), new(-1, -1)
+            Vector2Int[] directions = {
+                new Vector2Int(0, 1), new Vector2Int(1, 0),
+                new Vector2Int(0, -1), new Vector2Int(-1, 0),
+                new Vector2Int(1, 1), new Vector2Int(-1, 1),
+                new Vector2Int(1, -1), new Vector2Int(-1, -1)
             };
 
             foreach (var dir in directions)
             {
-                var nx = x + dir.x;
-                var ny = y + dir.y;
+                int nx = x + dir.x;
+                int ny = y + dir.y;
                 if (IsValidPosition(nx, ny))
                     neighbors.Add(new Vector2Int(nx, ny));
             }
@@ -85,13 +101,19 @@ namespace RTS.Pathfinding
 
         public Vector2Int WorldToGrid(Vector2 worldPos)
         {
-            var localPos = worldPos - WorldPosition;
-            return new Vector2Int(Mathf.FloorToInt(localPos.x), Mathf.FloorToInt(localPos.y));
+            Vector2 localPos = worldPos - worldPosition;
+            // Proper handling of negative coordinates
+            int gridX = Mathf.FloorToInt(localPos.x) + minX;
+            int gridY = Mathf.FloorToInt(localPos.y) + minY;
+            return new Vector2Int(gridX, gridY);
         }
 
         public Vector2 GridToWorld(Vector2Int gridPos)
         {
-            return WorldPosition + new Vector2(gridPos.x + 0.5f, gridPos.y + 0.5f);
+            // Convert grid position to local position first
+            float localX = gridPos.x - minX + 0.5f;
+            float localY = gridPos.y - minY + 0.5f;
+            return worldPosition + new Vector2(localX, localY);
         }
 
         public void AddConnectedRoom(int id, Room room)
@@ -99,9 +121,14 @@ namespace RTS.Pathfinding
             connectedRooms[id] = room;
         }
 
-        public Dictionary<int, Room> GetConnectedRooms()
+        public Dictionary<int, Room> GetConnectedRooms() => new Dictionary<int, Room>(connectedRooms);
+        
+        // Helper method to get bounds in grid coordinates
+        public Bounds GetGridBounds()
         {
-            return new Dictionary<int, Room>(connectedRooms);
+            var center = new Vector3((minX + MaxX) / 2f, (minY + MaxY) / 2f, 0);
+            var size = new Vector3(width, height, 1);
+            return new Bounds(center, size);
         }
     }
 }
