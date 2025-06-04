@@ -14,17 +14,25 @@ namespace RTS.Pathfinding
         private bool isMoving;
         private float moveSpeed = 5f;
         private RoomBasedNavigationController navController;
-
+        public Vector2 CurrentMovementDirection { get; private set; }
+        public bool IsMoving => isMoving; 
         private void Awake()
         {
             agentTransform = transform;
+            CurrentMovementDirection = Vector2.zero;
         }
 
         private void Update()
         {
             if (!isMoving || currentPath == null || !currentPath.IsValid)
-                return;
+            {
+                if (isMoving) // If it was moving and now stops due to invalid path
+                {
+                    CurrentMovementDirection = Vector2.zero;
+                }
 
+                return;
+            }
             MoveAlongPath(Time.deltaTime);
         }
 
@@ -43,17 +51,29 @@ namespace RTS.Pathfinding
             currentPath = path;
             currentWaypointIndex = 0;
             if (path != null && path.IsValid) StartMovement();
+            else
+            {
+                // If path is immediately invalid, ensure movement direction is cleared
+                isMoving = false;
+                CurrentMovementDirection = Vector2.zero;
+            }
         }
 
         public void StartMovement()
         {
             if (currentPath != null && currentPath.IsValid) isMoving = true;
+            else
+            {
+                isMoving = false;
+                CurrentMovementDirection = Vector2.zero;
+            }
         }
 
         public void StopMovement()
         {
             isMoving = false;
             currentPath = null;
+            CurrentMovementDirection = Vector2.zero;
             OnMovementStopped?.Invoke();
         }
 
@@ -104,6 +124,7 @@ namespace RTS.Pathfinding
             // Move towards current target
             var direction = (targetWorldPos - currentWorldPos).normalized;
             var movement = direction * moveSpeed * deltaTime;
+            CurrentMovementDirection = direction;
 
             // Don't overshoot the target
             if (movement.magnitude > Vector2.Distance(currentWorldPos, targetWorldPos))
